@@ -1,0 +1,73 @@
+services:
+  # PostgreSQL pour les données transactionnelles
+  postgres:
+    image: postgres:15-alpine
+    container_name: nyota-postgres
+    environment:
+      POSTGRES_USER: nyota_admin
+      POSTGRES_PASSWORD: NyotaSecurePass2025!
+      POSTGRES_DB: nyota_users
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql
+    networks:
+      - nyota-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nyota_admin"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis pour le cache et les sessions
+  redis:
+    image: redis:7-alpine
+    container_name: nyota-redis
+    command: redis-server --appendonly yes --requirepass RedisNyota2025!
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - nyota-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Commander pour la visualisation
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: nyota-redis-commander
+    environment:
+      - REDIS_HOSTS=local:redis:6379:0:RedisNyota2025!
+    ports:
+      - "8081:8081"
+    networks:
+      - nyota-network
+    depends_on:
+      - redis
+
+  # PgAdmin pour la gestion PostgreSQL
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: nyota-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@nyota.gov
+      PGADMIN_DEFAULT_PASSWORD: PgAdminNyota2025!
+    ports:
+      - "5050:80"
+    networks:
+      - nyota-network
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  nyota-network:
+    driver: bridge

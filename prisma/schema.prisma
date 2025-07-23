@@ -1,0 +1,424 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ========================================
+// ENTITÉS CENTRALES
+// ========================================
+
+model User {
+  id                    String    @id @default(uuid())
+  email                 String    @unique
+  passwordHash          String    @map("password_hash")
+  firstName             String    @map("first_name")
+  lastName              String    @map("last_name")
+  userType              UserType  @map("user_type")
+  
+  // Relations
+  establishmentId       String?   @map("establishment_id")
+  establishment         Establishment? @relation(fields: [establishmentId], references: [id])
+  
+  managerId             String?   @map("manager_id")
+  manager               User?     @relation("UserHierarchy", fields: [managerId], references: [id])
+  subordinates          User[]    @relation("UserHierarchy")
+  
+  // Métadonnées
+  isActive              Boolean   @default(true) @map("is_active")
+  lastLogin             DateTime? @map("last_login")
+  failedLoginAttempts   Int       @default(0) @map("failed_login_attempts")
+  lockedUntil           DateTime? @map("locked_until")
+  passwordChangedAt     DateTime? @map("password_changed_at")
+  
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+  
+  // Relations avec la sécurité
+  userGroups            UserSecurityGroup[]
+  createdEstablishments Establishment[] @relation("EstablishmentCreator")
+  modifiedEstablishments Establishment[] @relation("EstablishmentModifier")
+  
+  // Relations d'audit
+  auditLogs             AuditLog[]
+  assignedRequests      EstablishmentRequest[] @relation("RequestAssignee")
+  createdRequests       EstablishmentRequest[] @relation("RequestCreator")
+  
+  @@index([email])
+  @@index([establishmentId])
+  @@index([managerId])
+  @@map("users")
+}
+
+model Establishment {
+  id                    String    @id @default(uuid())
+  name                  String
+  code                  String    @unique @map("establishment_code")
+  establishmentType     EstablishmentType @map("establishment_type")
+  sector                EstablishmentSector
+  administrativeStatus  AdministrativeStatus @map("administrative_status")
+  
+  // Adresse et localisation
+  fullAddress           String    @map("full_address")
+  latitude              Decimal?  @db.Decimal(10, 8)
+  longitude             Decimal?  @db.Decimal(11, 8)
+  
+  // Relations géographiques
+  regionId              String    @map("region_id")
+  region                Region    @relation(fields: [regionId], references: [id])
+  departmentId          String    @map("department_id")
+  department            GeographicDepartment @relation(fields: [departmentId], references: [id])
+  communeId             String    @map("commune_id")
+  commune               Commune   @relation(fields: [communeId], references: [id])
+  
+  // Contact
+  phoneNumber           String?   @map("phone_number")
+  officialEmail         String?   @map("official_email")
+  website               String?
+  
+  // Statistiques
+  totalStudents         Int       @default(0) @map("total_students")
+  totalStaff            Int       @default(0) @map("total_staff")
+  
+  // Dates importantes
+  openingDate           DateTime? @map("opening_date")
+  closingDate           DateTime? @map("closing_date")
+  
+  // Métadonnées
+  isActive              Boolean   @default(true) @map("is_active")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+  
+  createdById           String    @map("created_by")
+  createdBy             User      @relation("EstablishmentCreator", fields: [createdById], references: [id])
+  modifiedById          String    @map("modified_by")
+  modifiedBy            User      @relation("EstablishmentModifier", fields: [modifiedById], references: [id])
+  
+  // Relations
+  users                 User[]
+  securityGroups        SecurityGroup[]
+  requests              EstablishmentRequest[]
+  
+  @@index([code])
+  @@index([regionId])
+  @@index([departmentId])
+  @@map("establishments")
+}
+
+// ========================================
+// SÉCURITÉ - MODÈLE 4 COUCHES
+// ========================================
+
+model SecurityGroup {
+  id                    String    @id @default(uuid())
+  name                  String
+  description           String?
+  establishmentId       String?   @map("establishment_id")
+  establishment         Establishment? @relation(fields: [establishmentId], references: [id])
+  isSystem              Boolean   @default(false) @map("is_system") // Groupes système non modifiables
+  isActive              Boolean   @default(true) @map("is_active")
+  
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+  
+  // Relations
+  users                 UserSecurityGroup[]
+  permissions           GroupPermission[]
+  visibilityRules       VisibilityRule[]
+  uiRules               UIRule[]
+  
+  @@unique([name, establishmentId])
+  @@map("security_groups")
+}
+
+model UserSecurityGroup {
+  userId                String    @map("user_id")
+  user                  User      @relation(fields: [userId], references: [id])
+  
+  groupId               String    @map("group_id")
+  group                 SecurityGroup @relation(fields: [groupId], references: [id])
+  
+  assignedAt            DateTime  @default(now()) @map("assigned_at")
+  expiresAt             DateTime? @map("expires_at")
+  isActive              Boolean   @default(true) @map("is_active")
+  
+  @@id([userId, groupId])
+  @@map("user_security_groups")
+}
+
+model BusinessObject {
+  id                    String    @id @default(uuid())
+  name                  String    @unique // Ex: "establishment.management", "user.profile"
+  scope                 ObjectScope
+  module                String    // Module concerné
+  description           String?
+  isActive              Boolean   @default(true) @map("is_active")
+  
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+  
+  // Relations
+  permissions           GroupPermission[]
+  visibilityRules       VisibilityRule[]
+  
+  @@map("business_objects")
+}
+
+model GroupPermission {
+  id                    String    @id @default(uuid())
+  
+  groupId               String    @map("group_id")
+  group                 SecurityGroup @relation(fields: [groupId], references: [id])
+  
+  objectId              String    @map("object_id")
+  object                BusinessObject @relation(fields: [objectId], references: [id])
+  
+  // Permissions CRUD
+  canRead               Boolean   @default(false) @map("can_read")
+  canWrite              Boolean   @default(false) @map("can_write")
+  canCreate             Boolean   @default(false) @map("can_create")
+  canDelete             Boolean   @default(false) @map("can_delete")
+  canApprove            Boolean   @default(false) @map("can_approve")
+  
+  // Permissions granulaires au niveau des champs
+  fieldPermissions      Json?     @map("field_permissions")
+  
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+  
+  @@unique([groupId, objectId])
+  @@map("group_permissions")
+}
+
+model VisibilityRule {
+  id                    String    @id @default(uuid())
+  name                  String
+  
+  groupId               String    @map("group_id")
+  group                 SecurityGroup @relation(fields: [groupId], references: [id])
+  
+  objectId              String    @map("object_id")
+  object                BusinessObject @relation(fields: [objectId], references: [id])
+  
+  ruleType              RuleType  @map("rule_type")
+  condition             Json      // Condition SQL/logique compilée
+  priority              Int       @default(0)
+  isActive              Boolean   @default(true) @map("is_active")
+  
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+  
+  @@index([groupId, objectId])
+  @@map("visibility_rules")
+}
+
+model UIRule {
+  id                    String    @id @default(uuid())
+  
+  groupId               String    @map("group_id")
+  group                 SecurityGroup @relation(fields: [groupId], references: [id])
+  
+  elementName           String    @map("element_name") // Nom de l'élément UI
+  elementType           UIElementType @map("element_type")
+  
+  isVisible             Boolean   @default(true) @map("is_visible")
+  isEnabled             Boolean   @default(true) @map("is_enabled")
+  conditions            Json?     // Conditions d'affichage dynamiques
+  
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+  
+  @@unique([groupId, elementName])
+  @@map("ui_rules")
+}
+
+// ========================================
+// AUDIT ET TRAÇABILITÉ
+// ========================================
+
+model AuditLog {
+  id                    String    @id @default(uuid())
+  
+  userId                String    @map("user_id")
+  user                  User      @relation(fields: [userId], references: [id])
+  
+  establishmentId       String?   @map("establishment_id")
+  
+  action                String    // LOGIN, LOGOUT, CREATE, UPDATE, DELETE, etc.
+  module                String    // Module concerné
+  resourceId            String?   @map("resource_id")
+  resourceType          String?   @map("resource_type")
+  
+  detailsBefore         Json?     @map("details_before")
+  detailsAfter          Json?     @map("details_after")
+  
+  ipAddress             String?   @map("ip_address")
+  userAgent             String?   @map("user_agent")
+  
+  createdAt             DateTime  @default(now()) @map("created_at")
+  
+  @@index([userId])
+  @@index([resourceId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ========================================
+// ENTITÉS GÉOGRAPHIQUES
+// ========================================
+
+model Region {
+  id                    String    @id @default(uuid())
+  name                  String
+  code                  String    @unique
+  isActive              Boolean   @default(true) @map("is_active")
+  
+  establishments        Establishment[]
+  departments           GeographicDepartment[]
+  
+  @@map("regions")
+}
+
+model GeographicDepartment {
+  id                    String    @id @default(uuid())
+  name                  String
+  code                  String    @unique
+  
+  regionId              String    @map("region_id")
+  region                Region    @relation(fields: [regionId], references: [id])
+  
+  isActive              Boolean   @default(true) @map("is_active")
+  
+  establishments        Establishment[]
+  communes              Commune[]
+  
+  @@map("geographic_departments")
+}
+
+model Commune {
+  id                    String    @id @default(uuid())
+  name                  String
+  postalCode            String    @map("postal_code")
+  
+  departmentId          String    @map("department_id")
+  department            GeographicDepartment @relation(fields: [departmentId], references: [id])
+  
+  isActive              Boolean   @default(true) @map("is_active")
+  
+  establishments        Establishment[]
+  
+  @@map("communes")
+}
+
+// ========================================
+// GESTION DES DEMANDES
+// ========================================
+
+model EstablishmentRequest {
+  id                    String    @id @default(uuid())
+  requestType           RequestType @map("request_type")
+  requestStatus         RequestStatus @map("request_status")
+  
+  establishmentId       String?   @map("establishment_id")
+  establishment         Establishment? @relation(fields: [establishmentId], references: [id])
+  
+  requesterId           String    @map("requester_id")
+  requester             User      @relation("RequestCreator", fields: [requesterId], references: [id])
+  
+  assigneeId            String?   @map("assignee_id")
+  assignee              User?     @relation("RequestAssignee", fields: [assigneeId], references: [id])
+  
+  justification         String?
+  requestData           Json?     @map("request_data")
+  
+  submittedAt           DateTime  @default(now()) @map("submitted_at")
+  processedAt           DateTime? @map("processed_at")
+  processingComments    String?   @map("processing_comments")
+  
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+  
+  @@map("establishment_requests")
+}
+
+// ========================================
+// ENUMS
+// ========================================
+
+enum UserType {
+  MINISTRY_STAFF
+  SCHOOL_ADMIN
+  TEACHER
+  STUDENT
+  PARENT
+  @@map("user_type")
+}
+
+enum EstablishmentType {
+  PRIMARY
+  SECONDARY
+  HIGHER
+  @@map("establishment_type")
+}
+
+enum EstablishmentSector {
+  PUBLIC
+  PRIVATE_CONTRACTED
+  PRIVATE_INDEPENDENT
+  @@map("establishment_sector")
+}
+
+enum AdministrativeStatus {
+  PENDING
+  AUTHORIZED
+  SUSPENDED
+  CLOSED
+  @@map("administrative_status")
+}
+
+enum ObjectScope {
+  MINISTRY
+  SCHOOL
+  COMMON
+  @@map("object_scope")
+}
+
+enum RuleType {
+  HIERARCHY
+  GEOGRAPHY
+  OWNERSHIP
+  TENANT
+  CUSTOM
+  @@map("rule_type")
+}
+
+enum UIElementType {
+  FIELD
+  BUTTON
+  MENU
+  SECTION
+  PAGE
+  @@map("ui_element_type")
+}
+
+enum RequestType {
+  CREATION
+  MODIFICATION
+  CLOSURE
+  SUSPENSION
+  @@map("request_type")
+}
+
+enum RequestStatus {
+  SUBMITTED
+  IN_PROGRESS
+  APPROVED
+  REJECTED
+  @@map("request_status")
+}
