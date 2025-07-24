@@ -12,7 +12,7 @@ async function seedReferenceData() {
       prisma.region.create({
         data: {
           name: 'Brazzaville',
-          code: 'BZ',
+          code: 'BZV',
           isActive: true,
         },
       }),

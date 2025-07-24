@@ -25,9 +25,10 @@
       "@cache/*": ["src/cache/*"],
       "@audit/*": ["src/audit/*"],
       "@common/*": ["src/common/*"],
-      "@database/*": ["src/database/*"]
+      "@database/*": ["src/database/*"],
+      "@seeds/*":["/prisma/seeds/*"]
     }
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*","prisma/seeds/**/*.ts"],
   "exclude": ["node_modules", "dist", "test", "**/*spec.ts"]
 }
