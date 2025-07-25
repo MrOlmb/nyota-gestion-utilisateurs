@@ -41,9 +41,64 @@ model Ministere {
   modifieLe DateTime @updatedAt @map("modifie_le")
 
   // Relations
-  departements DepartementMinisteriel[]
+  administrations Administration[]
 
   @@map("ministeres")
+}
+
+// Administrations sous tutelle du ministère
+model Administration {
+  id                 String        @id @default(uuid())
+  nom                String
+  code               String        @unique
+  description        String?
+  typeAdministration TypeStructure @map("type_administration")
+
+  ministereId String    @map("ministere_id")
+  ministere   Ministere @relation(fields: [ministereId], references: [id])
+
+  estActif  Boolean  @default(true) @map("est_actif")
+  creeLe    DateTime @default(now()) @map("cree_le")
+  modifieLe DateTime @updatedAt @map("modifie_le")
+
+  // Relations
+  structures StructureAdministrative[]
+
+  @@map("administrations")
+}
+
+// Structure administrative générique et flexible
+model StructureAdministrative {
+  id            String        @id @default(uuid())
+  nom           String
+  code          String        @unique
+  typeStructure TypeStructure @map("type_structure")
+  description   String?
+
+  // Rattachement
+  administrationId String?         @map("administration_id")
+  administration   Administration? @relation(fields: [administrationId], references: [id])
+
+  // Hiérarchie interne
+  parentId String?                   @map("parent_id")
+  parent   StructureAdministrative?  @relation("HierarchieStructure", fields: [parentId], references: [id])
+  enfants  StructureAdministrative[] @relation("HierarchieStructure")
+
+  // Compétence territoriale (optionnelle selon le type de structure)
+  departementId String?      @map("departement_id")
+  departement   Departement? @relation(fields: [departementId], references: [id])
+
+  communeId String?  @map("commune_id")
+  commune   Commune? @relation(fields: [communeId], references: [id])
+
+  estActif  Boolean  @default(true) @map("est_actif")
+  creeLe    DateTime @default(now()) @map("cree_le")
+  modifieLe DateTime @updatedAt @map("modifie_le")
+
+  // Relations
+  usersMinistry UserMinistry[]
+
+  @@map("structures_administratives")
 }
 
 // ========================================
@@ -68,8 +123,7 @@ model UserMinistry {
   subordonnes UserMinistry[] @relation("HierarchieMinistere")
 
   // Affectation
-  departementId String?                 @map("departement_id")
-  departement   DepartementMinisteriel? @relation(fields: [departementId], references: [id])
+  structureId   String?                 @map("structure_id")
 
   // Restrictions géographiques (pour directeurs régionaux, inspecteurs)
   departementGeoId String?      @map("departement_geo_id")
@@ -94,6 +148,7 @@ model UserMinistry {
   demandesTraitees       DemandeEtablissement[]      @relation("TraiteParMinistere")
   inspectionsPrincipales InspectionEtablissement[]
   journalAudit           JournalAudit[]              @relation("AuditMinistere")
+  structure              StructureAdministrative?    @relation(fields: [structureId], references: [id])
 
   // Relation inverse pour Ministre
   ministere                 Ministere?                  @relation("MinistreActuel")
@@ -102,7 +157,6 @@ model UserMinistry {
   BudgetEtablissement       BudgetEtablissement[]
 
   @@index([email])
-  @@index([departementId])
   @@index([managerId])
   @@map("users_ministry")
 }
@@ -163,9 +217,10 @@ model Departement {
   estActif Boolean @default(true) @map("est_actif")
 
   // Relations
-  districts      District[]
-  etablissements Etablissement[]
-  usersMinistry  UserMinistry[]
+  districts                 District[]
+  etablissements            Etablissement[]
+  usersMinistry             UserMinistry[]
+  structuresAdministratives StructureAdministrative[]
 
   @@map("departements")
 }
@@ -199,8 +254,9 @@ model Commune {
   estActif Boolean @default(true) @map("est_actif")
 
   // Relations
-  arrondissements Arrondissement[]
-  etablissements  Etablissement[]
+  arrondissements           Arrondissement[]
+  etablissements            Etablissement[]
+  structuresAdministratives StructureAdministrative[]
 
   @@map("communes")
 }
@@ -221,31 +277,6 @@ model Arrondissement {
   @@map("arrondissements")
 }
 
-// ========================================
-// DÉPARTEMENTS MINISTÉRIELS
-// ========================================
-
-model DepartementMinisteriel {
-  id          String  @id @default(uuid())
-  nom         String
-  code        String  @unique
-  description String?
-
-  // Hiérarchie sous le ministère
-  ministereId String    @map("ministere_id")
-  ministere   Ministere @relation(fields: [ministereId], references: [id])
-
-  departementParentId String?                  @map("departement_parent_id")
-  parent              DepartementMinisteriel?  @relation("HierarchieDepartement", fields: [departementParentId], references: [id])
-  enfants             DepartementMinisteriel[] @relation("HierarchieDepartement")
-
-  estActif Boolean @default(true) @map("est_actif")
-
-  // Relations
-  usersMinistry UserMinistry[]
-
-  @@map("departements_ministeriels")
-}
 
 // ========================================
 // ÉTABLISSEMENTS
@@ -909,6 +940,20 @@ enum TypeEtablissement {
   SUPERIEUR
 
   @@map("type_etablissement")
+}
+
+// Types de structures administratives
+enum TypeStructure {
+  ADMINISTRATION
+  DIRECTION_GENERALE
+  DIRECTION_CENTRALE
+  SERVICE_CENTRAL
+  DELEGATION_REGIONALE
+  AGENCE
+  ETABLISSEMENT_PUBLIC
+  AUTRE
+
+  @@map("type_structure")
 }
 
 enum Zone {

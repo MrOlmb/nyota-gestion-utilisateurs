@@ -2,341 +2,386 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-async function seedSecurityGroups() {
-  console.log('🔐 Création des groupes de sécurité...');
+/**
+ * Main function to seed MINISTRY-LEVEL and TEMPLATE school security groups, permissions, and rules.
+ * This script is idempotent and can be run multiple times safely.
+ */
+async function main() {
+  console.log(
+    '🔐 Démarrage du seeding de la sécurité (Groupes & Permissions)...',
+  );
 
   try {
-    // 1. Créer les groupes de sécurité système (Ministère)
-    console.log('  👥 Création des groupes ministère...');
-
-    const superAdminGroup = await prisma.securityGroup.create({
-      data: {
-        name: 'Super Administrateurs',
-        description: 'Accès complet au système',
-        isSystem: true,
-        isActive: true,
-      },
-    });
-
-    const ministryAdminGroup = await prisma.securityGroup.create({
-      data: {
-        name: 'Administrateurs Ministère',
-        description: 'Administration du système au niveau ministère',
-        isSystem: true,
-        isActive: true,
-      },
-    });
-
-    const inspectorGroup = await prisma.securityGroup.create({
-      data: {
-        name: 'Inspecteurs',
-        description: "Inspecteurs généraux de l'éducation",
-        isSystem: true,
-        isActive: true,
-      },
-    });
-
-    const regionalManagerGroup = await prisma.securityGroup.create({
-      data: {
-        name: 'Directeurs Régionaux',
-        description: "Directeurs régionaux de l'éducation",
-        isSystem: true,
-        isActive: true,
-      },
-    });
-
-    const analystGroup = await prisma.securityGroup.create({
-      data: {
-        name: 'Analystes',
-        description: 'Analystes et statisticiens du ministère',
-        isSystem: true,
-        isActive: true,
-      },
-    });
-
-    // 2. Créer les groupes pour les établissements (templates)
-    console.log('  🏫 Création des groupes établissements...');
-
-    const schoolAdminGroup = await prisma.securityGroup.create({
-      data: {
-        name: 'Administrateurs École',
-        description: 'Administration au niveau établissement',
-        isSystem: true,
-        isActive: true,
-      },
-    });
-
-    const principalGroup = await prisma.securityGroup.create({
-      data: {
-        name: "Directeurs d'École",
-        description: 'Directeurs et proviseurs',
-        isSystem: true,
-        isActive: true,
-      },
-    });
-
-    const teacherGroup = await prisma.securityGroup.create({
-      data: {
-        name: 'Enseignants',
-        description: 'Corps enseignant',
-        isSystem: true,
-        isActive: true,
-      },
-    });
-
-    const studentGroup = await prisma.securityGroup.create({
-      data: {
-        name: 'Élèves',
-        description: 'Élèves et étudiants',
-        isSystem: true,
-        isActive: true,
-      },
-    });
-
-    const parentGroup = await prisma.securityGroup.create({
-      data: {
-        name: 'Parents',
-        description: "Parents d'élèves",
-        isSystem: true,
-        isActive: true,
-      },
-    });
-
-    // 3. Attribuer les permissions aux groupes
-    console.log('  🔑 Attribution des permissions...');
-
-    // Récupérer tous les objets métier
     const businessObjects = await prisma.businessObject.findMany();
-    const objectMap = Object.fromEntries(
-      businessObjects.map((obj) => [obj.name, obj.id]),
-    );
+    const objectMap = new Map(businessObjects.map((obj) => [obj.nom, obj.id]));
 
-    // Permissions Super Admin - Accès total
-    for (const obj of businessObjects) {
-      await prisma.groupPermission.create({
-        data: {
-          groupId: superAdminGroup.id,
-          objectId: obj.id,
-          canRead: true,
-          canWrite: true,
-          canCreate: true,
-          canDelete: true,
-          canApprove: true,
-        },
-      });
-    }
+    const ministryGroups = await seedMinistrySecurityGroups();
+    await seedMinistryPermissions(ministryGroups, objectMap);
 
-    // Permissions Administrateurs Ministère
-    const ministryAdminPermissions = [
-      {
-        object: 'user.management',
-        permissions: {
-          read: true,
-          write: true,
-          create: true,
-          delete: false,
-          approve: false,
-        },
-      },
-      {
-        object: 'establishment.management',
-        permissions: {
-          read: true,
-          write: true,
-          create: true,
-          delete: false,
-          approve: true,
-        },
-      },
-      {
-        object: 'establishment.request',
-        permissions: {
-          read: true,
-          write: true,
-          create: false,
-          delete: false,
-          approve: true,
-        },
-      },
-      {
-        object: 'statistics.national',
-        permissions: {
-          read: true,
-          write: false,
-          create: false,
-          delete: false,
-          approve: false,
-        },
-      },
-      {
-        object: 'reports.ministry',
-        permissions: {
-          read: true,
-          write: true,
-          create: true,
-          delete: false,
-          approve: false,
-        },
-      },
-    ];
+    const schoolTemplateGroups = await seedSchoolTemplateGroups();
+    await seedSchoolTemplatePermissions(schoolTemplateGroups, objectMap);
 
-    for (const perm of ministryAdminPermissions) {
-      if (objectMap[perm.object]) {
-        await prisma.groupPermission.create({
-          data: {
-            groupId: ministryAdminGroup.id,
-            objectId: objectMap[perm.object],
-            canRead: perm.permissions.read,
-            canWrite: perm.permissions.write,
-            canCreate: perm.permissions.create,
-            canDelete: perm.permissions.delete,
-            canApprove: perm.permissions.approve,
-          },
-        });
-      }
-    }
+    // Note: Rules seeding is complex and context-dependent.
+    // I've provided a robust structure you can populate.
+    await seedMinistryRules(ministryGroups, objectMap);
 
-    // Permissions Inspecteurs
-    const inspectorPermissions = [
-      {
-        object: 'establishment.management',
-        permissions: {
-          read: true,
-          write: false,
-          create: false,
-          delete: false,
-          approve: false,
-        },
-      },
-      {
-        object: 'statistics.national',
-        permissions: {
-          read: true,
-          write: false,
-          create: false,
-          delete: false,
-          approve: false,
-        },
-      },
-      {
-        object: 'reports.ministry',
-        permissions: {
-          read: true,
-          write: true,
-          create: true,
-          delete: false,
-          approve: false,
-        },
-      },
-    ];
+    await logSummary();
 
-    for (const perm of inspectorPermissions) {
-      if (objectMap[perm.object]) {
-        await prisma.groupPermission.create({
-          data: {
-            groupId: inspectorGroup.id,
-            objectId: objectMap[perm.object],
-            canRead: perm.permissions.read,
-            canWrite: perm.permissions.write,
-            canCreate: perm.permissions.create,
-            canDelete: perm.permissions.delete,
-            canApprove: perm.permissions.approve,
-          },
-        });
-      }
-    }
-
-    // 4. Créer les règles de visibilité
-    console.log('  👁️ Création des règles de visibilité...');
-
-    // Règle hiérarchique pour les directeurs régionaux
-    await prisma.visibilityRule.create({
-      data: {
-        name: 'Visibilité Régionale',
-        groupId: regionalManagerGroup.id,
-        objectId: objectMap['establishment.management'],
-        ruleType: 'GEOGRAPHY',
-        condition: {
-          type: 'filter',
-          field: 'regionId',
-          operator: 'equals',
-          value: '$userRegionId',
-        },
-        priority: 10,
-        isActive: true,
-      },
-    });
-
-    // Règle de tenant pour les écoles
-    await prisma.visibilityRule.create({
-      data: {
-        name: 'Isolation École',
-        groupId: schoolAdminGroup.id,
-        objectId: objectMap['student.management'],
-        ruleType: 'TENANT',
-        condition: {
-          type: 'filter',
-          field: 'establishmentId',
-          operator: 'equals',
-          value: '$userEstablishmentId',
-        },
-        priority: 20,
-        isActive: true,
-      },
-    });
-
-    // 5. Créer les règles UI
-    console.log('  🎨 Création des règles UI...');
-
-    // Masquer les champs sensibles pour certains groupes
-    await prisma.uIRule.create({
-      data: {
-        groupId: teacherGroup.id,
-        elementName: 'field.salary',
-        elementType: 'FIELD',
-        isVisible: false,
-        isEnabled: false,
-      },
-    });
-
-    await prisma.uIRule.create({
-      data: {
-        groupId: studentGroup.id,
-        elementName: 'button.delete',
-        elementType: 'BUTTON',
-        isVisible: false,
-        isEnabled: false,
-      },
-    });
-
-    // Afficher le résumé
-    const summary = await prisma.$transaction([
-      prisma.securityGroup.count(),
-      prisma.groupPermission.count(),
-      prisma.visibilityRule.count(),
-      prisma.uIRule.count(),
-    ]);
-
-    console.log('\n📊 Résumé des groupes de sécurité:');
-    console.log(`  - Groupes créés: ${summary[0]}`);
-    console.log(`  - Permissions attribuées: ${summary[1]}`);
-    console.log(`  - Règles de visibilité: ${summary[2]}`);
-    console.log(`  - Règles UI: ${summary[3]}`);
-
-    console.log('\n✅ Groupes de sécurité créés avec succès');
+    console.log('\n✅ Données de sécurité insérées/mises à jour avec succès.');
   } catch (error) {
     console.error(
-      '❌ Erreur lors de la création des groupes de sécurité:',
+      '❌ Erreur critique durant le seeding de la sécurité:',
       error,
     );
-    throw error;
+    process.exit(1);
   } finally {
     await prisma.$disconnect();
   }
 }
 
-// Exécution
-seedSecurityGroups().catch((e) => {
-  console.error(e);
+/**
+ * Seeds Ministry security groups.
+ */
+async function seedMinistrySecurityGroups() {
+  console.log('  👥 Seeding des groupes de sécurité ministère...');
+  const groupsData = [
+    {
+      nom: 'Super Administrateurs',
+      description: 'Accès complet au système ministère',
+    },
+    {
+      nom: 'Cabinet Ministériel',
+      description: 'Ministre, directeur de cabinet et conseillers',
+    },
+    {
+      nom: 'Secrétariat Général',
+      description: 'Secrétaire général et adjoints',
+    },
+    {
+      nom: 'Directeurs Généraux',
+      description: 'Directeurs généraux des administrations',
+    },
+    {
+      nom: 'Directeurs Centraux',
+      description: 'Directeurs des directions centrales',
+    },
+    { nom: 'Chefs de Service', description: 'Chefs de services centraux' },
+    {
+      nom: 'Délégués Régionaux',
+      description: "Délégués régionaux de l'éducation",
+    },
+    { nom: 'Inspecteurs', description: "Inspecteurs de l'éducation" },
+    {
+      nom: 'Analystes et Statisticiens',
+      description: "Personnel d'analyse et statistiques",
+    },
+  ];
+
+  await prisma.$transaction(
+    groupsData.map((group) =>
+      prisma.securityGroupMinistry.upsert({
+        where: { nom: group.nom },
+        update: { description: group.description },
+        create: { ...group, estSysteme: true, estActif: true },
+      }),
+    ),
+  );
+  return prisma.securityGroupMinistry.findMany();
+}
+
+/**
+ * Seeds TEMPLATE school security groups (where etablissementId is null).
+ */
+/**
+ * Seeds TEMPLATE school security groups (where etablissementId is null).
+ * Solution corrigée pour gérer les contraintes composites avec null.
+ */
+async function seedSchoolTemplateGroups() {
+  console.log('  🏫 Seeding des groupes modèles pour les écoles...');
+  const groupsData = [
+    {
+      nom: 'Direction École',
+      description: 'Directeurs, proviseurs et leurs adjoints',
+    },
+    { nom: 'Enseignants', description: 'Corps enseignant' },
+    { nom: 'Élèves', description: 'Élèves et étudiants' },
+    { nom: 'Parents', description: "Parents d'élèves" },
+    {
+      nom: 'Personnel Administratif',
+      description: 'Secrétaires et personnel de bureau',
+    },
+  ];
+
+  // Solution 1: Utiliser findFirst + create/update séparément
+  for (const group of groupsData) {
+    const existingGroup = await prisma.securityGroupSchool.findFirst({
+      where: { 
+        nom: group.nom, 
+        etablissementId: null 
+      },
+    });
+
+    if (existingGroup) {
+      // Mise à jour si le groupe existe
+      await prisma.securityGroupSchool.update({
+        where: { id: existingGroup.id },
+        data: { description: group.description },
+      });
+    } else {
+      // Création si le groupe n'existe pas
+      await prisma.securityGroupSchool.create({
+        data: {
+          ...group,
+          etablissementId: null,
+          estSysteme: true,
+          estActif: true,
+        },
+      });
+    }
+  }
+
+  return prisma.securityGroupSchool.findMany({
+    where: { etablissementId: null },
+  });
+}
+
+// Alternative : Solution 2 avec une contrainte unique différente
+async function seedSchoolTemplateGroupsAlternative() {
+  console.log('  🏫 Seeding des groupes modèles pour les écoles...');
+  const groupsData = [
+    {
+      nom: 'Direction École',
+      description: 'Directeurs, proviseurs et leurs adjoints',
+    },
+    { nom: 'Enseignants', description: 'Corps enseignant' },
+    { nom: 'Élèves', description: 'Élèves et étudiants' },
+    { nom: 'Parents', description: "Parents d'élèves" },
+    {
+      nom: 'Personnel Administratif',
+      description: 'Secrétaires et personnel de bureau',
+    },
+  ];
+
+  // Si vous pouvez modifier votre schéma Prisma pour avoir un champ unique
+  // pour les groupes template, utilisez quelque chose comme :
+  // @@unique([nom]) where etablissementId is null
+  
+  await prisma.$transaction(
+    groupsData.map((group) =>
+      prisma.securityGroupSchool.upsert({
+        // Utiliser seulement le nom si vous avez une contrainte unique sur nom
+        // quand etablissementId est null
+        where: { 
+          nom_etablissementId: {
+            nom: group.nom,
+            etablissementId: null
+          }
+        },
+        update: { description: group.description },
+        create: {
+          ...group,
+          etablissementId: null,
+          estSysteme: true,
+          estActif: true,
+        },
+      }),
+    ),
+  );
+  
+  return prisma.securityGroupSchool.findMany({
+    where: { etablissementId: null },
+  });
+}
+
+/**
+ * Seeds permissions for ministry security groups.
+ */
+async function seedMinistryPermissions(
+  ministryGroups: any[],
+  objectMap: Map<string, string>,
+) {
+  console.log('  🔑 Seeding des permissions ministère...');
+  const groupMap = new Map(ministryGroups.map((g) => [g.nom, g.id]));
+  const permissions: any[] = [];
+
+  // Super Admin: Full access to non-school objects
+  const superAdminId = groupMap.get('Super Administrateurs');
+  if (superAdminId) {
+    for (const [objName, objId] of objectMap.entries()) {
+      if (
+        !objName.startsWith('school.') &&
+        !objName.startsWith('student.') &&
+        !objName.startsWith('teacher.') &&
+        !objName.startsWith('parent.')
+      ) {
+        permissions.push({
+          groupId: superAdminId,
+          objectId: objId,
+          peutLire: true,
+          peutEcrire: true,
+          peutCreer: true,
+          peutSupprimer: true,
+          peutApprouver: true,
+        });
+      }
+    }
+  }
+
+  // Add other ministry permissions here...
+  // Example: Cabinet has read-only on stats
+  const cabinetId = groupMap.get('Cabinet Ministériel');
+  const statsId = objectMap.get('statistics.national');
+  if (cabinetId && statsId) {
+    permissions.push({
+      groupId: cabinetId,
+      objectId: statsId,
+      peutLire: true,
+      peutEcrire: false,
+      peutCreer: false,
+      peutSupprimer: false,
+      peutApprouver: false,
+    });
+  }
+
+  await prisma.$transaction(
+    permissions.map((p) =>
+      prisma.groupPermissionMinistry.upsert({
+        where: {
+          groupId_objectId: { groupId: p.groupId, objectId: p.objectId },
+        },
+        update: p,
+        create: p,
+      }),
+    ),
+  );
+}
+
+/**
+ * Seeds permissions for TEMPLATE school security groups.
+ */
+async function seedSchoolTemplatePermissions(
+  schoolGroups: any[],
+  objectMap: Map<string, string>,
+) {
+  console.log('  🔑 Seeding des permissions pour les groupes modèles école...');
+  const groupMap = new Map(schoolGroups.map((g) => [g.nom, g.id]));
+  const permissions: any[] = [];
+
+  // Teacher permissions
+  const teacherGroupId = groupMap.get('Enseignants');
+  if (teacherGroupId) {
+    const teacherObjects = [
+      'student.grades',
+      'student.attendance',
+      'parent.communication',
+    ];
+    teacherObjects.forEach((objName) => {
+      const objId = objectMap.get(objName);
+      if (objId) {
+        permissions.push({
+          groupId: teacherGroupId,
+          objectId: objId,
+          peutLire: true,
+          peutEcrire: true,
+          peutCreer: true,
+          peutSupprimer: false,
+        });
+      }
+    });
+  }
+
+  // Student permissions
+  const studentGroupId = groupMap.get('Élèves');
+  if (studentGroupId) {
+    const studentObjects = [
+      'student.grades',
+      'student.attendance',
+      'teacher.schedule',
+    ];
+    studentObjects.forEach((objName) => {
+      const objId = objectMap.get(objName);
+      if (objId) {
+        permissions.push({
+          groupId: studentGroupId,
+          objectId: objId,
+          peutLire: true,
+          peutEcrire: false,
+          peutCreer: false,
+          peutSupprimer: false,
+        });
+      }
+    });
+  }
+
+  await prisma.$transaction(
+    permissions.map((p) =>
+      prisma.groupPermissionSchool.upsert({
+        where: {
+          groupId_objectId: { groupId: p.groupId, objectId: p.objectId },
+        },
+        update: p,
+        create: p,
+      }),
+    ),
+  );
+}
+
+/**
+ * Seeds visibility and UI rules. This is a placeholder for your specific logic.
+ */
+async function seedMinistryRules(
+  ministryGroups: any[],
+  objectMap: Map<string, string>,
+) {
+  console.log('  👁️  🎨 Seeding des règles de visibilité et UI (structure)...');
+  const groupMap = new Map(ministryGroups.map((g) => [g.nom, g.id]));
+
+  const regionalDelegatesId = groupMap.get('Délégués Régionaux');
+  const establishmentMgmtId = objectMap.get('establishment.management');
+
+  if (regionalDelegatesId && establishmentMgmtId) {
+    await prisma.visibilityRuleMinistry.upsert({
+      where: { id: 'rule_regional_visibility_01' }, // Use a predictable ID or unique name if you add one
+      update: {},
+      create: {
+        id: 'rule_regional_visibility_01',
+        nom: 'Visibilité Régionale pour Délégués',
+        groupId: regionalDelegatesId,
+        objectId: establishmentMgmtId,
+        typeRegle: 'GEOGRAPHY',
+        condition: {
+          field: 'departementId',
+          operator: 'equals',
+          value: '$userDepartementGeoId',
+        },
+        priorite: 10,
+      },
+    });
+  }
+}
+
+/**
+ * Logs a summary of the security data in the database.
+ */
+async function logSummary() {
+  const counts = await prisma.$transaction([
+    prisma.securityGroupMinistry.count(),
+    prisma.securityGroupSchool.count({ where: { etablissementId: null } }),
+    prisma.groupPermissionMinistry.count(),
+    prisma.groupPermissionSchool.count(),
+    prisma.visibilityRuleMinistry.count(),
+  ]);
+
+  console.log('\n📊 Résumé des données de sécurité:');
+  console.log(`  - Groupes ministère: ${counts[0]}`);
+  console.log(`  - Groupes modèles école: ${counts[1]}`);
+  console.log(`  - Permissions ministère: ${counts[2]}`);
+  console.log(`  - Permissions école (modèles): ${counts[3]}`);
+  console.log(`  - Règles de visibilité ministère: ${counts[4]}`);
+}
+
+// Execute the main seeding function
+main().catch((e) => {
+  console.error('Le script de seeding de la sécurité a échoué:', e);
   process.exit(1);
 });

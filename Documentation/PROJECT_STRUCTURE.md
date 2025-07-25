@@ -211,6 +211,6 @@ JWT_SECRET           # Secret pour les tokens
 JWT_EXPIRES_IN       # Durée de vie
 
 # Sécurité
-BCRYPT_ROUNDS        # Rounds de hashage
+BCRYPTJS_ROUNDS        # Rounds de hashage
 MAX_LOGIN_ATTEMPTS   # Tentatives max
 ```

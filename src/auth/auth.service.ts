@@ -1,9 +1,19 @@
-import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  BadRequestException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../database/prisma.service';
 import { RedisService } from '../cache/redis.service';
-import * as bcrypt from 'bcrypt';
-import { User, Prisma } from '@prisma/client';
+import * as bcryptjs from 'bcryptjs';
+import {
+  UserMinistry,
+  UserSchool,
+  Prisma,
+  UserMinistryType,
+  UserSchoolType,
+} from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 
 interface AuthTokens {
@@ -12,8 +22,21 @@ interface AuthTokens {
   expiresIn: number;
 }
 
+type AuthUser = UserMinistry | UserSchool;
+
+interface UserProfile {
+  id: string;
+  email: string;
+  prenom: string;
+  nom: string;
+  typeUtilisateur: UserMinistryType | UserSchoolType;
+  etablissementId?: string;
+  structureId?: string;
+  scope: 'MINISTRY' | 'SCHOOL';
+}
+
 interface LoginResult extends AuthTokens {
-  user: Partial<User>;
+  user: UserProfile;
 }
 
 @Injectable()
@@ -31,53 +54,110 @@ export class AuthService {
     private redisService: RedisService,
     private configService: ConfigService,
   ) {
-    this.MAX_LOGIN_ATTEMPTS = this.configService.get<number>('MAX_LOGIN_ATTEMPTS', 5);
-    this.LOCK_TIME_MINUTES = this.configService.get<number>('LOCK_TIME_MINUTES', 30);
+    this.MAX_LOGIN_ATTEMPTS = this.configService.get<number>(
+      'MAX_LOGIN_ATTEMPTS',
+      5,
+    );
+    this.LOCK_TIME_MINUTES = this.configService.get<number>(
+      'LOCK_TIME_MINUTES',
+      30,
+    );
     this.JWT_SECRET = this.configService.get<string>('JWT_SECRET');
-    this.JWT_EXPIRES_IN = this.configService.get<string>('JWT_EXPIRES_IN', '15m');
-    this.JWT_REFRESH_SECRET = this.configService.get<string>('JWT_REFRESH_SECRET');
-    this.JWT_REFRESH_EXPIRES_IN = this.configService.get<string>('JWT_REFRESH_EXPIRES_IN', '7d');
+    this.JWT_EXPIRES_IN = this.configService.get<string>(
+      'JWT_EXPIRES_IN',
+      '15m',
+    );
+    this.JWT_REFRESH_SECRET =
+      this.configService.get<string>('JWT_REFRESH_SECRET');
+    this.JWT_REFRESH_EXPIRES_IN = this.configService.get<string>(
+      'JWT_REFRESH_EXPIRES_IN',
+      '7d',
+    );
   }
 
   /**
    * Algorithme de connexion avec protection contre brute-force
+   * Supporte les deux types d'utilisateurs (Ministry/School)
    */
-  async login(email: string, password: string, ipAddress?: string): Promise<LoginResult> {
+  async login(
+    email: string,
+    password: string,
+    ipAddress?: string,
+  ): Promise<LoginResult> {
     // 1. Vérifier le verrouillage du compte
     const lockKey = `lock:${email}`;
     const isLocked = await this.redisService.get(lockKey);
-    
+
     if (isLocked) {
-      throw new UnauthorizedException('Compte verrouillé. Veuillez réessayer plus tard.');
+      throw new UnauthorizedException(
+        'Compte verrouillé. Veuillez réessayer plus tard.',
+      );
     }
 
-    // 2. Récupérer l'utilisateur avec ses groupes
-    const user = await this.prisma.user.findUnique({
+    // 2. Chercher l'utilisateur dans les deux tables (Ministry puis School)
+    let user: AuthUser | null = null;
+    let userScope: 'MINISTRY' | 'SCHOOL';
+
+    // Essayer d'abord dans UserMinistry
+    const ministryUser = await this.prisma.userMinistry.findUnique({
       where: { email },
       include: {
-        userGroups: {
+        groupesSecurite: {
           include: {
             group: {
               include: {
                 permissions: {
                   include: {
-                    object: true
-                  }
-                }
-              }
-            }
+                    object: true,
+                  },
+                },
+              },
+            },
           },
           where: {
-            isActive: true,
-            OR: [
-              { expiresAt: null },
-              { expiresAt: { gte: new Date() } }
-            ]
-          }
+            estActif: true,
+            OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }],
+          },
         },
-        establishment: true
-      }
+        structure: true,
+        departementGeo: true,
+      },
     });
+
+    if (ministryUser) {
+      user = ministryUser;
+      userScope = 'MINISTRY';
+    } else {
+      // Essayer dans UserSchool
+      const schoolUser = await this.prisma.userSchool.findUnique({
+        where: { email },
+        include: {
+          etablissement: true,
+          groupesSecurite: {
+            include: {
+              group: {
+                include: {
+                  permissions: {
+                    include: {
+                      object: true,
+                    },
+                  },
+                },
+              },
+            },
+            where: {
+              estActif: true,
+              OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }],
+            },
+          },
+        },
+      });
+
+      if (schoolUser) {
+        user = schoolUser;
+        userScope = 'SCHOOL';
+      }
+    }
 
     if (!user) {
       await this.incrementLoginAttempts(email);
@@ -85,39 +165,51 @@ export class AuthService {
     }
 
     // 3. Vérifier le mot de passe
-    const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
-    
+    const isPasswordValid = await bcryptjs.compare(password, user.passwordHash);
+
     if (!isPasswordValid) {
       await this.incrementLoginAttempts(email);
-      
+
       // Vérifier si le compte doit être verrouillé
-      if (user.failedLoginAttempts >= this.MAX_LOGIN_ATTEMPTS - 1) {
-        await this.lockAccount(user.id, email);
-        throw new UnauthorizedException('Compte verrouillé suite à plusieurs tentatives échouées');
+      if (user.tentativesEchouees >= this.MAX_LOGIN_ATTEMPTS - 1) {
+        await this.lockAccount(user.id, email, userScope);
+        throw new UnauthorizedException(
+          'Compte verrouillé suite à plusieurs tentatives échouées',
+        );
       }
-      
+
       throw new UnauthorizedException('Email ou mot de passe incorrect');
     }
 
     // 4. Vérifier si le compte est actif
-    if (!user.isActive) {
+    if (!user.estActif) {
       throw new UnauthorizedException('Compte désactivé');
     }
 
-    // 5. Réinitialiser les tentatives échouées
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: {
-        failedLoginAttempts: 0,
-        lastLogin: new Date()
-      }
-    });
+    // 5. Réinitialiser les tentatives échouées et mettre à jour la dernière connexion
+    if (userScope === 'MINISTRY') {
+      await this.prisma.userMinistry.update({
+        where: { id: user.id },
+        data: {
+          tentativesEchouees: 0,
+          derniereConnexion: new Date(),
+        },
+      });
+    } else {
+      await this.prisma.userSchool.update({
+        where: { id: user.id },
+        data: {
+          tentativesEchouees: 0,
+          derniereConnexion: new Date(),
+        },
+      });
+    }
 
     // 6. Générer les tokens JWT
-    const tokens = await this.generateTokens(user);
+    const tokens = await this.generateTokens(user, userScope);
 
     // 7. Compiler et mettre en cache le contexte de sécurité
-    const securityContext = await this.compileSecurityContext(user);
+    const securityContext = await this.compileSecurityContext(user, userScope);
     await this.cacheSecurityContext(user.id, securityContext);
 
     // 8. Créer la session dans Redis
@@ -127,107 +219,155 @@ export class AuthService {
     await this.auditLogin(user.id, ipAddress, true);
 
     // 10. Retourner le résultat
+    const userProfile: UserProfile = {
+      id: user.id,
+      email: user.email,
+      prenom: user.prenom,
+      nom: user.nom,
+      typeUtilisateur: user.typeUtilisateur,
+      scope: userScope,
+      etablissementId:
+        userScope === 'SCHOOL' ? (user as any).etablissementId : undefined,
+      structureId:
+        userScope === 'MINISTRY' ? (user as any).structureId : undefined,
+    };
+
     return {
       ...tokens,
-      user: {
-        id: user.id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        userType: user.userType,
-        establishmentId: user.establishmentId
-      }
+      user: userProfile,
     };
   }
 
   /**
    * Algorithme de compilation du contexte de sécurité
+   * Adapté pour les deux types d'utilisateurs (Ministry/School)
    */
-  private async compileSecurityContext(user: any): Promise<any> {
+  private async compileSecurityContext(
+    user: AuthUser,
+    userScope: 'MINISTRY' | 'SCHOOL',
+  ): Promise<any> {
     const context = {
       userId: user.id,
-      userType: user.userType,
-      establishmentId: user.establishmentId,
+      userScope,
+      userType: user.typeUtilisateur,
+      etablissementId:
+        userScope === 'SCHOOL' ? (user as any).etablissementId : undefined,
+      structureId:
+        userScope === 'MINISTRY' ? (user as any).structureId : undefined,
       permissions: {},
       dataFilters: {},
       uiRules: [],
       hierarchy: null,
-      lastUpdated: Date.now()
+      lastUpdated: Date.now(),
     };
 
+    const userGroups = (user as any).groupesSecurite || [];
+
     // 1. Compiler les permissions par objet métier
-    for (const userGroup of user.userGroups) {
+    for (const userGroup of userGroups) {
       for (const permission of userGroup.group.permissions) {
-        const objectName = permission.object.name;
-        
+        const objectName = permission.object.nom;
+
         if (!context.permissions[objectName]) {
           context.permissions[objectName] = {
             read: false,
             write: false,
             create: false,
             delete: false,
-            approve: false
+            approve: false,
           };
         }
 
         // Agrégation des permissions (OR logique)
-        context.permissions[objectName].read ||= permission.canRead;
-        context.permissions[objectName].write ||= permission.canWrite;
-        context.permissions[objectName].create ||= permission.canCreate;
-        context.permissions[objectName].delete ||= permission.canDelete;
-        context.permissions[objectName].approve ||= permission.canApprove;
+        context.permissions[objectName].read ||= permission.peutLire;
+        context.permissions[objectName].write ||= permission.peutEcrire;
+        context.permissions[objectName].create ||= permission.peutCreer;
+        context.permissions[objectName].delete ||= permission.peutSupprimer;
+        context.permissions[objectName].approve ||= permission.peutApprouver;
       }
     }
 
     // 2. Compiler les règles de visibilité (RLS)
-    const visibilityRules = await this.prisma.visibilityRule.findMany({
-      where: {
-        groupId: {
-          in: user.userGroups.map(ug => ug.groupId)
-        },
-        isActive: true
-      },
-      include: {
-        object: true
-      },
-      orderBy: {
-        priority: 'desc'
-      }
-    });
+    const groupIds = userGroups.map((ug: any) => ug.groupId);
 
-    for (const rule of visibilityRules) {
-      const objectName = rule.object.name;
-      
-      if (!context.dataFilters[objectName]) {
-        context.dataFilters[objectName] = [];
+    if (groupIds.length > 0) {
+      const visibilityTable =
+        userScope === 'MINISTRY'
+          ? 'visibilityRuleMinistry'
+          : 'visibilityRuleSchool';
+
+      let visibilityRules;
+      if (userScope === 'MINISTRY') {
+        visibilityRules = await this.prisma.visibilityRuleMinistry.findMany({
+          where: {
+            groupId: { in: groupIds },
+            estActive: true,
+          },
+          include: {
+            object: true,
+          },
+          orderBy: {
+            priorite: 'desc',
+          },
+        });
+      } else {
+        visibilityRules = await this.prisma.visibilityRuleSchool.findMany({
+          where: {
+            groupId: { in: groupIds },
+            estActive: true,
+          },
+          include: {
+            object: true,
+          },
+          orderBy: {
+            priorite: 'desc',
+          },
+        });
       }
 
-      context.dataFilters[objectName].push({
-        type: rule.ruleType,
-        condition: rule.condition,
-        priority: rule.priority
-      });
+      for (const rule of visibilityRules) {
+        const objectName = rule.object.nom;
+
+        if (!context.dataFilters[objectName]) {
+          context.dataFilters[objectName] = [];
+        }
+
+        context.dataFilters[objectName].push({
+          type: rule.typeRegle,
+          condition: rule.condition,
+          priority: rule.priorite,
+        });
+      }
     }
 
     // 3. Compiler les règles UI
-    const uiRules = await this.prisma.uIRule.findMany({
-      where: {
-        groupId: {
-          in: user.userGroups.map(ug => ug.groupId)
-        }
+    if (groupIds.length > 0) {
+      let uiRules;
+      if (userScope === 'MINISTRY') {
+        uiRules = await this.prisma.uIRuleMinistry.findMany({
+          where: {
+            groupId: { in: groupIds },
+          },
+        });
+      } else {
+        uiRules = await this.prisma.uIRuleSchool.findMany({
+          where: {
+            groupId: { in: groupIds },
+          },
+        });
       }
-    });
 
-    context.uiRules = uiRules.map(rule => ({
-      element: rule.elementName,
-      type: rule.elementType,
-      visible: rule.isVisible,
-      enabled: rule.isEnabled,
-      conditions: rule.conditions
-    }));
+      context.uiRules = uiRules.map((rule: any) => ({
+        element: rule.nomElement,
+        type: rule.typeElement,
+        visible: rule.estVisible,
+        enabled: rule.estActif,
+        conditions: rule.conditions,
+      }));
+    }
 
-    // 4. Calculer la hiérarchie
-    if (user.userType === 'MINISTRY_STAFF') {
+    // 4. Calculer la hiérarchie (seulement pour les utilisateurs du ministère)
+    if (userScope === 'MINISTRY') {
       context.hierarchy = await this.calculateHierarchy(user.id);
     }
 
@@ -235,28 +375,28 @@ export class AuthService {
   }
 
   /**
-   * Algorithme de calcul de la hiérarchie
+   * Algorithme de calcul de la hiérarchie pour les utilisateurs du ministère
    */
   private async calculateHierarchy(userId: string): Promise<any> {
     const hierarchy = {
       managerId: null,
       subordinates: [],
-      level: 0
+      level: 0,
     };
 
-    // Requête récursive pour obtenir toute la hiérarchie
+    // Requête récursive pour obtenir toute la hiérarchie dans UserMinistry
     const result = await this.prisma.$queryRaw`
       WITH RECURSIVE subordinates AS (
-        SELECT id, email, first_name, last_name, manager_id, 0 as level
-        FROM users
+        SELECT id, email, prenom, nom, manager_id, 0 as level
+        FROM users_ministry
         WHERE id = ${userId}::uuid
         
         UNION ALL
         
-        SELECT u.id, u.email, u.first_name, u.last_name, u.manager_id, s.level + 1
-        FROM users u
+        SELECT u.id, u.email, u.prenom, u.nom, u.manager_id, s.level + 1
+        FROM users_ministry u
         INNER JOIN subordinates s ON u.manager_id = s.id
-        WHERE u.is_active = true
+        WHERE u.est_actif = true
       )
       SELECT * FROM subordinates;
     `;
@@ -269,8 +409,8 @@ export class AuthService {
         hierarchy.subordinates.push({
           id: row.id,
           email: row.email,
-          fullName: `${row.first_name} ${row.last_name}`,
-          level: row.level
+          fullName: `${row.prenom} ${row.nom}`,
+          level: row.level,
         });
       }
     }
@@ -284,66 +424,88 @@ export class AuthService {
   private async incrementLoginAttempts(email: string): Promise<number> {
     const attemptsKey = `attempts:${email}`;
     const attempts = await this.redisService.increment(attemptsKey);
-    
+
     // Définir l'expiration à 30 minutes
     if (attempts === 1) {
       await this.redisService.expire(attemptsKey, this.LOCK_TIME_MINUTES * 60);
     }
-    
+
     return attempts;
   }
 
   /**
-   * Verrouillage du compte
+   * Verrouillage du compte (adapté pour Ministry/School)
    */
-  private async lockAccount(userId: string, email: string): Promise<void> {
+  private async lockAccount(
+    userId: string,
+    email: string,
+    userScope: 'MINISTRY' | 'SCHOOL',
+  ): Promise<void> {
     const lockKey = `lock:${email}`;
     const lockDuration = this.LOCK_TIME_MINUTES * 60;
-    
+
     // Verrouiller dans Redis
     await this.redisService.set(lockKey, '1', lockDuration);
-    
-    // Mettre à jour la base de données
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        lockedUntil: new Date(Date.now() + lockDuration * 1000)
-      }
-    });
+
+    // Mettre à jour la base de données selon le type d'utilisateur
+    const lockUntil = new Date(Date.now() + lockDuration * 1000);
+
+    if (userScope === 'MINISTRY') {
+      await this.prisma.userMinistry.update({
+        where: { id: userId },
+        data: {
+          verrouJusqua: lockUntil,
+        },
+      });
+    } else {
+      await this.prisma.userSchool.update({
+        where: { id: userId },
+        data: {
+          verrouJusqua: lockUntil,
+        },
+      });
+    }
   }
 
   /**
    * Cache du contexte de sécurité
    */
-  private async cacheSecurityContext(userId: string, context: any): Promise<void> {
+  private async cacheSecurityContext(
+    userId: string,
+    context: any,
+  ): Promise<void> {
     const key = `security:${userId}`;
     const ttl = this.configService.get<number>('CACHE_TTL_PERMISSIONS', 3600);
-    
+
     await this.redisService.set(key, JSON.stringify(context), ttl);
   }
 
   /**
    * Création de session
    */
-  private async createSession(userId: string, token: string, ipAddress?: string): Promise<void> {
+  private async createSession(
+    userId: string,
+    token: string,
+    ipAddress?: string,
+  ): Promise<void> {
     const sessionId = this.generateSessionId();
     const sessionKey = `session:${sessionId}`;
     const userSessionsKey = `user_sessions:${userId}`;
-    
+
     const session = {
       sessionId,
       userId,
       token,
       ipAddress,
       createdAt: Date.now(),
-      lastActivity: Date.now()
+      lastActivity: Date.now(),
     };
 
     // Stocker la session
     await this.redisService.set(
-      sessionKey, 
+      sessionKey,
       JSON.stringify(session),
-      this.configService.get<number>('SESSION_TTL_SECONDS', 1800)
+      this.configService.get<number>('SESSION_TTL_SECONDS', 1800),
     );
 
     // Ajouter à la liste des sessions de l'utilisateur
@@ -351,46 +513,65 @@ export class AuthService {
   }
 
   /**
-   * Génération des tokens JWT
+   * Génération des tokens JWT (adapté pour Ministry/School)
    */
-  private async generateTokens(user: any): Promise<AuthTokens> {
+  private async generateTokens(
+    user: AuthUser,
+    userScope: 'MINISTRY' | 'SCHOOL',
+  ): Promise<AuthTokens> {
     const payload = {
       sub: user.id,
       email: user.email,
-      type: user.userType,
-      establishmentId: user.establishmentId
+      type: user.typeUtilisateur,
+      scope: userScope,
+      establishmentId:
+        userScope === 'SCHOOL' ? (user as any).etablissementId : undefined,
+      structureId:
+        userScope === 'MINISTRY' ? (user as any).structureId : undefined,
     };
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, {
         secret: this.JWT_SECRET,
-        expiresIn: this.JWT_EXPIRES_IN
+        expiresIn: this.JWT_EXPIRES_IN,
       }),
       this.jwtService.signAsync(payload, {
         secret: this.JWT_REFRESH_SECRET,
-        expiresIn: this.JWT_REFRESH_EXPIRES_IN
-      })
+        expiresIn: this.JWT_REFRESH_EXPIRES_IN,
+      }),
     ]);
 
     return {
       accessToken,
       refreshToken,
-      expiresIn: 900 // 15 minutes en secondes
+      expiresIn: 900, // 15 minutes en secondes
     };
   }
 
   /**
-   * Audit de connexion
+   * Audit de connexion (adapté pour le modèle JournalAudit)
    */
-  private async auditLogin(userId: string, ipAddress: string, success: boolean): Promise<void> {
-    await this.prisma.auditLog.create({
+  private async auditLogin(
+    userId: string,
+    ipAddress: string,
+    success: boolean,
+  ): Promise<void> {
+    // Vérifier quel type d'utilisateur pour déterminer le champ à utiliser
+    const ministryUser = await this.prisma.userMinistry.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+
+    await this.prisma.journalAudit.create({
       data: {
-        userId,
+        userMinistryId: ministryUser ? userId : null,
+        userSchoolId: ministryUser ? null : userId,
         action: success ? 'LOGIN_SUCCESS' : 'LOGIN_FAILED',
         module: 'AUTH',
-        ipAddress,
-        createdAt: new Date()
-      }
+        adresseIp: ipAddress,
+        userAgent: '', // À enrichir avec les données de la requête
+        creeLe: new Date(),
+      },
     });
   }
 

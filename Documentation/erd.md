@@ -41,6 +41,19 @@ SUPERIEUR SUPERIEUR
     
 
 
+        type_structure {
+            ADMINISTRATION ADMINISTRATION
+DIRECTION_GENERALE DIRECTION_GENERALE
+DIRECTION_CENTRALE DIRECTION_CENTRALE
+SERVICE_CENTRAL SERVICE_CENTRAL
+DELEGATION_REGIONALE DELEGATION_REGIONALE
+AGENCE AGENCE
+ETABLISSEMENT_PUBLIC ETABLISSEMENT_PUBLIC
+AUTRE AUTRE
+        }
+    
+
+
         zone {
             URBAINE URBAINE
 RURALE RURALE
@@ -204,6 +217,35 @@ CRITIQUE CRITIQUE
     }
   
 
+  "administrations" {
+    String id "🗝️"
+    String nom 
+    String code 
+    String description "❓"
+    TypeStructure type_administration 
+    String ministere_id 
+    Boolean est_actif 
+    DateTime cree_le 
+    DateTime modifie_le 
+    }
+  
+
+  "structures_administratives" {
+    String id "🗝️"
+    String nom 
+    String code 
+    TypeStructure type_structure 
+    String description "❓"
+    String administration_id "❓"
+    String parent_id "❓"
+    String departement_id "❓"
+    String commune_id "❓"
+    Boolean est_actif 
+    DateTime cree_le 
+    DateTime modifie_le 
+    }
+  
+
   "users_ministry" {
     String id "🗝️"
     String email 
@@ -213,7 +255,7 @@ CRITIQUE CRITIQUE
     UserMinistryType type_utilisateur 
     String titre "❓"
     String manager_id "❓"
-    String departement_id "❓"
+    String structure_id "❓"
     String departement_geo_id "❓"
     Boolean est_actif 
     DateTime derniere_connexion "❓"
@@ -279,17 +321,6 @@ CRITIQUE CRITIQUE
     String nom 
     String code 
     String commune_id 
-    Boolean est_actif 
-    }
-  
-
-  "departements_ministeriels" {
-    String id "🗝️"
-    String nom 
-    String code 
-    String description "❓"
-    String ministere_id 
-    String departement_parent_id "❓"
     Boolean est_actif 
     }
   
@@ -647,11 +678,20 @@ CRITIQUE CRITIQUE
     }
   
     "ministeres" o|--|o "users_ministry" : "ministreActuel"
-    "ministeres" o{--}o "departements_ministeriels" : "departements"
+    "ministeres" o{--}o "administrations" : "administrations"
+    "administrations" o|--|| "TypeStructure" : "enum:type_administration"
+    "administrations" o|--|| "ministeres" : "ministere"
+    "administrations" o{--}o "structures_administratives" : "structures"
+    "structures_administratives" o|--|| "TypeStructure" : "enum:type_structure"
+    "structures_administratives" o|--|o "administrations" : "administration"
+    "structures_administratives" o|--|o "structures_administratives" : "parent"
+    "structures_administratives" o{--}o "structures_administratives" : "enfants"
+    "structures_administratives" o|--|o "departements" : "departement"
+    "structures_administratives" o|--|o "communes" : "commune"
+    "structures_administratives" o{--}o "users_ministry" : "usersMinistry"
     "users_ministry" o|--|| "UserMinistryType" : "enum:type_utilisateur"
     "users_ministry" o|--|o "users_ministry" : "manager"
     "users_ministry" o{--}o "users_ministry" : "subordonnes"
-    "users_ministry" o|--|o "departements_ministeriels" : "departement"
     "users_ministry" o|--|o "departements" : "departementGeo"
     "users_ministry" o{--}o "user_ministry_security_groups" : "groupesSecurite"
     "users_ministry" o{--}o "etablissements" : "etablissementsCrees"
@@ -661,6 +701,7 @@ CRITIQUE CRITIQUE
     "users_ministry" o{--}o "demandes_etablissement" : "demandesTraitees"
     "users_ministry" o{--}o "inspections_etablissement" : "inspectionsPrincipales"
     "users_ministry" o{--}o "journal_audit" : "journalAudit"
+    "users_ministry" o|--|o "structures_administratives" : "structure"
     "users_ministry" o{--}o "ministeres" : "ministere"
     "users_ministry" o{--}o "etapes_workflow" : "EtapeWorkflow"
     "users_ministry" o{--}o "autorisations_etablissement" : "AutorisationEtablissement"
@@ -674,18 +715,16 @@ CRITIQUE CRITIQUE
     "departements" o{--}o "districts" : "districts"
     "departements" o{--}o "etablissements" : "etablissements"
     "departements" o{--}o "users_ministry" : "usersMinistry"
+    "departements" o{--}o "structures_administratives" : "structuresAdministratives"
     "districts" o|--|| "departements" : "departement"
     "districts" o{--}o "communes" : "communes"
     "districts" o{--}o "etablissements" : "etablissements"
     "communes" o|--|| "districts" : "district"
     "communes" o{--}o "arrondissements" : "arrondissements"
     "communes" o{--}o "etablissements" : "etablissements"
+    "communes" o{--}o "structures_administratives" : "structuresAdministratives"
     "arrondissements" o|--|| "communes" : "commune"
     "arrondissements" o{--}o "etablissements" : "etablissements"
-    "departements_ministeriels" o|--|| "ministeres" : "ministere"
-    "departements_ministeriels" o|--|o "departements_ministeriels" : "parent"
-    "departements_ministeriels" o{--}o "departements_ministeriels" : "enfants"
-    "departements_ministeriels" o{--}o "users_ministry" : "usersMinistry"
     "etablissements" o|--|| "TypeEtablissement" : "enum:type_etablissement"
     "etablissements" o|--|| "SecteurEtablissement" : "enum:secteur"
     "etablissements" o|--|| "StatutAdministratif" : "enum:statut_administratif"

@@ -5,7 +5,7 @@ services:
     container_name: nyota-postgres
     environment:
       POSTGRES_USER: nyota_admin
-      POSTGRES_PASSWORD: NyotaSecurePass2025!
+      POSTGRES_PASSWORD: NyotaSecurePass2024!
       POSTGRES_DB: nyota_users
     ports:
       - "5432:5432"
@@ -20,11 +20,31 @@ services:
       timeout: 5s
       retries: 5
 
+  # PostgreSQL pour la base de données de test
+  postgres_test:
+    image: postgres:15-alpine
+    container_name: nyota-postgres-test
+    environment:
+      POSTGRES_USER: nyota_admin_test
+      POSTGRES_PASSWORD: NyotaSecureTestPass2024!
+      POSTGRES_DB: nyota_users_test
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+    networks:
+      - nyota-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nyota_admin_test"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # Redis pour le cache et les sessions
   redis:
     image: redis:7-alpine
     container_name: nyota-redis
-    command: redis-server --appendonly yes --requirepass RedisNyota2025!
+    command: redis-server --appendonly yes --requirepass RedisNyota2024!
     ports:
       - "6379:6379"
     volumes:
@@ -42,7 +62,7 @@ services:
     image: rediscommander/redis-commander:latest
     container_name: nyota-redis-commander
     environment:
-      - REDIS_HOSTS=local:redis:6379:0:RedisNyota2025!
+      - REDIS_HOSTS=local:redis:6379:0:RedisNyota2024!
     ports:
       - "8081:8081"
     networks:
@@ -56,7 +76,7 @@ services:
     container_name: nyota-pgadmin
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@nyota.gov
-      PGADMIN_DEFAULT_PASSWORD: PgAdminNyota2025!
+      PGADMIN_DEFAULT_PASSWORD: PgAdminNyota2024!
     ports:
       - "5050:80"
     networks:
@@ -66,6 +86,7 @@ services:
 
 volumes:
   postgres_data:
+  postgres_test_data:
   redis_data:
 
 networks:

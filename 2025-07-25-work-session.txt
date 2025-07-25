@@ -1,0 +1,23 @@
+╭──────────────────────────────────────────────────────────────────────────╮
+│ ✻ Welcome to Claude Code!                                                │
+│                                                                          │
+│   /help for help, /status for your current setup                         │
+│                                                                          │
+│   cwd: /home/daddy/Desktop/OPEN-TECH/Modules/nyota-gestion-utilisateurs  │
+╰──────────────────────────────────────────────────────────────────────────╯
+● Compact summary (ctrl+r to expand)
+  ⎿  Read src/test/setup-teardown.ts (629 lines)
+  ⎿  Read src/test/test-helpers.ts (586 lines)
+  ⎿  Read src/common/guards/security.guard.spec.ts (495 lines)
+  ⎿  Read src/security/filters/rls-filter.service.spec.ts (511 lines)
+  ⎿  Read src/security/filters/rls-filter.service.ts (468 lines)
+  ⎿  Todo list read (6 items)
+  ⎿  Claude usage limit reached. Your limit will reset at 12pm (Africa/Brazzaville).
+
+      • /upgrade to increase your usage limit.
+
+> Thank you
+  ⎿  Claude usage limit reached. Your limit will reset at 12pm (Africa/Brazzaville).
+
+      • /upgrade to increase your usage limit.
+
