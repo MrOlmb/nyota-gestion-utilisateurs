@@ -1,7 +1,6 @@
 import {
   Injectable,
   UnauthorizedException,
-  BadRequestException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../database/prisma.service';
@@ -10,7 +9,6 @@ import * as bcryptjs from 'bcryptjs';
 import {
   UserMinistry,
   UserSchool,
-  Prisma,
   UserMinistryType,
   UserSchoolType,
 } from '@prisma/client';
@@ -33,6 +31,26 @@ interface UserProfile {
   etablissementId?: string;
   structureId?: string;
   scope: 'MINISTRY' | 'SCHOOL';
+}
+
+interface PermissionSet {
+  read: boolean;
+  write: boolean;
+  create: boolean;
+  delete: boolean;
+  approve: boolean;
+}
+
+interface SecurityContext {
+  userId: string;
+  userScope: 'MINISTRY' | 'SCHOOL';
+  userType: UserMinistryType | UserSchoolType;
+  etablissementId?: string;
+  structureId?: string;
+  permissions: { [objectName: string]: PermissionSet };
+  visibilityRules: { [table: string]: any };
+  uiRules: { [module: string]: any };
+  hierarchy?: any;
 }
 
 interface LoginResult extends AuthTokens {
@@ -62,13 +80,13 @@ export class AuthService {
       'LOCK_TIME_MINUTES',
       30,
     );
-    this.JWT_SECRET = this.configService.get<string>('JWT_SECRET');
+    this.JWT_SECRET = this.configService.get<string>('JWT_SECRET') || 'default-jwt-secret';
     this.JWT_EXPIRES_IN = this.configService.get<string>(
       'JWT_EXPIRES_IN',
       '15m',
     );
     this.JWT_REFRESH_SECRET =
-      this.configService.get<string>('JWT_REFRESH_SECRET');
+      this.configService.get<string>('JWT_REFRESH_SECRET') || 'default-refresh-secret';
     this.JWT_REFRESH_EXPIRES_IN = this.configService.get<string>(
       'JWT_REFRESH_EXPIRES_IN',
       '7d',
@@ -96,7 +114,7 @@ export class AuthService {
 
     // 2. Chercher l'utilisateur dans les deux tables (Ministry puis School)
     let user: AuthUser | null = null;
-    let userScope: 'MINISTRY' | 'SCHOOL';
+    let userScope: 'MINISTRY' | 'SCHOOL' = 'MINISTRY';
 
     // Essayer d'abord dans UserMinistry
     const ministryUser = await this.prisma.userMinistry.findUnique({
@@ -216,7 +234,7 @@ export class AuthService {
     await this.createSession(user.id, tokens.accessToken, ipAddress);
 
     // 9. Enregistrer l'audit
-    await this.auditLogin(user.id, ipAddress, true);
+    await this.auditLogin(user.id, ipAddress || '', true);
 
     // 10. Retourner le résultat
     const userProfile: UserProfile = {
@@ -245,8 +263,8 @@ export class AuthService {
   private async compileSecurityContext(
     user: AuthUser,
     userScope: 'MINISTRY' | 'SCHOOL',
-  ): Promise<any> {
-    const context = {
+  ): Promise<SecurityContext> {
+    const context: SecurityContext = {
       userId: user.id,
       userScope,
       userType: user.typeUtilisateur,
@@ -255,10 +273,9 @@ export class AuthService {
       structureId:
         userScope === 'MINISTRY' ? (user as any).structureId : undefined,
       permissions: {},
-      dataFilters: {},
-      uiRules: [],
+      visibilityRules: {},
+      uiRules: {},
       hierarchy: null,
-      lastUpdated: Date.now(),
     };
 
     const userGroups = (user as any).groupesSecurite || [];
@@ -291,11 +308,6 @@ export class AuthService {
     const groupIds = userGroups.map((ug: any) => ug.groupId);
 
     if (groupIds.length > 0) {
-      const visibilityTable =
-        userScope === 'MINISTRY'
-          ? 'visibilityRuleMinistry'
-          : 'visibilityRuleSchool';
-
       let visibilityRules;
       if (userScope === 'MINISTRY') {
         visibilityRules = await this.prisma.visibilityRuleMinistry.findMany({
@@ -328,11 +340,11 @@ export class AuthService {
       for (const rule of visibilityRules) {
         const objectName = rule.object.nom;
 
-        if (!context.dataFilters[objectName]) {
-          context.dataFilters[objectName] = [];
+        if (!context.visibilityRules[objectName]) {
+          context.visibilityRules[objectName] = [];
         }
 
-        context.dataFilters[objectName].push({
+        context.visibilityRules[objectName].push({
           type: rule.typeRegle,
           condition: rule.condition,
           priority: rule.priorite,
@@ -357,13 +369,21 @@ export class AuthService {
         });
       }
 
-      context.uiRules = uiRules.map((rule: any) => ({
-        element: rule.nomElement,
-        type: rule.typeElement,
-        visible: rule.estVisible,
-        enabled: rule.estActif,
-        conditions: rule.conditions,
-      }));
+      for (const rule of uiRules) {
+        const moduleName = 'default'; // Since nomModule doesn't exist in the schema
+        
+        if (!context.uiRules[moduleName]) {
+          context.uiRules[moduleName] = [];
+        }
+        
+        context.uiRules[moduleName].push({
+          element: rule.nomElement,
+          type: rule.typeElement,
+          visible: rule.estVisible,
+          enabled: rule.estActif,
+          conditions: rule.conditions,
+        });
+      }
     }
 
     // 4. Calculer la hiérarchie (seulement pour les utilisateurs du ministère)
@@ -378,44 +398,31 @@ export class AuthService {
    * Algorithme de calcul de la hiérarchie pour les utilisateurs du ministère
    */
   private async calculateHierarchy(userId: string): Promise<any> {
-    const hierarchy = {
-      managerId: null,
-      subordinates: [],
-      level: 0,
-    };
-
-    // Requête récursive pour obtenir toute la hiérarchie dans UserMinistry
-    const result = await this.prisma.$queryRaw`
-      WITH RECURSIVE subordinates AS (
-        SELECT id, email, prenom, nom, manager_id, 0 as level
-        FROM users_ministry
-        WHERE id = ${userId}::uuid
-        
-        UNION ALL
-        
-        SELECT u.id, u.email, u.prenom, u.nom, u.manager_id, s.level + 1
-        FROM users_ministry u
-        INNER JOIN subordinates s ON u.manager_id = s.id
-        WHERE u.est_actif = true
-      )
-      SELECT * FROM subordinates;
-    `;
-
-    // Traiter les résultats
-    for (const row of result as any[]) {
-      if (row.id === userId) {
-        hierarchy.managerId = row.manager_id;
-      } else {
-        hierarchy.subordinates.push({
-          id: row.id,
-          email: row.email,
-          fullName: `${row.prenom} ${row.nom}`,
-          level: row.level,
-        });
-      }
+    try {
+      const user = await this.prisma.userMinistry.findUnique({
+        where: { id: userId },
+        select: { managerId: true }
+      });
+      
+      const subordinates = await this.prisma.userMinistry.findMany({
+        where: { managerId: userId, estActif: true },
+        select: { id: true, email: true, prenom: true, nom: true }
+      });
+      
+      return {
+        managerId: user?.managerId || null,
+        subordinates: subordinates.map(sub => ({
+          id: sub.id,
+          email: sub.email,
+          fullName: `${sub.prenom} ${sub.nom}`,
+          level: 1
+        })),
+        level: 0
+      };
+    } catch (error) {
+      console.error(`Error calculating hierarchy for user ${userId}:`, error);
+      return { managerId: null, subordinates: [], level: 0 };
     }
-
-    return hierarchy;
   }
 
   /**

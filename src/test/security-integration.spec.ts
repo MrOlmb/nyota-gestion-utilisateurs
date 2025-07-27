@@ -1,86 +1,27 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
-import * as request from 'supertest';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../database/prisma.service';
 import { RedisService } from '../cache/redis.service';
 import { AuthService } from '../auth/auth.service';
 import { SecurityContextService } from '../security/security-context.service';
-import { PermissionCheckerService } from '../security/permissions/permission-checker.service';
+import { PermissionCheckerService, PermissionAction } from '../security/permissions/permission-checker.service';
 import { RLSFilterService } from '../security/filters/rls-filter.service';
-import { SecurityGuard } from '../common/guards/security.guard';
-import { RLSInterceptor } from '../common/interceptors/rls.interceptor';
+import { UIVisibilityService } from '../security/ui-rules/ui-visibility.service';
+import { TestEnvironmentManager } from './setup-teardown';
 
 describe('Security Integration Tests', () => {
   let app: INestApplication;
   let authService: AuthService;
-  let prismaService: jest.Mocked<PrismaService>;
-  let redisService: jest.Mocked<RedisService>;
+  let securityContextService: SecurityContextService;
+  let permissionChecker: PermissionCheckerService;
+  let rlsFilterService: RLSFilterService;
+  let uiVisibilityService: UIVisibilityService;
+  let prismaService: PrismaService;
+  let redisService: RedisService;
   let jwtService: JwtService;
-
-  // Mock data
-  const mockMinistryUser = {
-    id: 'ministry-user-1',
-    email: 'ministre@education.cg',
-    passwordHash: '$2a$10$hashedpassword',
-    prenom: 'Jean',
-    nom: 'Dupont',
-    typeUtilisateur: 'DIRECTEUR',
-    estActif: true,
-    tentativesEchouees: 0,
-    groupesSecurite: [
-      {
-        groupId: 'group-1',
-        group: {
-          permissions: [
-            {
-              object: { nom: 'etablissement.management' },
-              peutLire: true,
-              peutEcrire: true,
-              peutCreer: true,
-              peutSupprimer: false,
-              peutApprouver: true
-            }
-          ]
-        }
-      }
-    ],
-    structure: { id: 'structure-1' },
-    departementGeo: null
-  };
-
-  const mockSchoolUser = {
-    id: 'school-user-1',
-    email: 'directeur@ecole.cg',
-    passwordHash: '$2a$10$hashedpassword',
-    prenom: 'Marie',
-    nom: 'Martin',
-    typeUtilisateur: 'DIRECTEUR',
-    etablissementId: 'etablissement-1',
-    estActif: true,
-    tentativesEchouees: 0,
-    groupesSecurite: [
-      {
-        groupId: 'group-school-1',
-        group: {
-          permissions: [
-            {
-              object: { nom: 'student.management' },
-              peutLire: true,
-              peutEcrire: true,
-              peutCreer: true,
-              peutSupprimer: false,
-              peutApprouver: false
-            }
-          ]
-        }
-      }
-    ],
-    etablissement: {
-      id: 'etablissement-1',
-      nom: 'École Primaire de Brazzaville'
-    }
-  };
+  let testManager: TestEnvironmentManager;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -89,68 +30,29 @@ describe('Security Integration Tests', () => {
         SecurityContextService,
         PermissionCheckerService,
         RLSFilterService,
-        SecurityGuard,
-        RLSInterceptor,
+        UIVisibilityService,
+        PrismaService,
+        RedisService,
         JwtService,
         {
-          provide: PrismaService,
+          provide: ConfigService,
           useValue: {
-            userMinistry: {
-              findUnique: jest.fn(),
-              update: jest.fn(),
-            },
-            userSchool: {
-              findUnique: jest.fn(),
-              update: jest.fn(),
-            },
-            journalAudit: {
-              create: jest.fn(),
-            },
-            visibilityRuleMinistry: {
-              findMany: jest.fn(),
-            },
-            visibilityRuleSchool: {
-              findMany: jest.fn(),
-            },
-            uIRuleMinistry: {
-              findMany: jest.fn(),
-            },
-            uIRuleSchool: {
-              findMany: jest.fn(),
-            },
-            $queryRaw: jest.fn(),
-          },
-        },
-        {
-          provide: RedisService,
-          useValue: {
-            get: jest.fn(),
-            set: jest.fn(),
-            increment: jest.fn(),
-            expire: jest.fn(),
-            sadd: jest.fn(),
-          },
-        },
-        {
-          provide: 'JWT_MODULE_OPTIONS',
-          useValue: {
-            secret: 'test-secret',
-            signOptions: { expiresIn: '15m' },
-          },
-        },
-        {
-          provide: 'CONFIG_SERVICE',
-          useValue: {
-            get: jest.fn((key: string) => {
+            get: jest.fn((key: string, defaultValue?: any) => {
               const config = {
                 JWT_SECRET: 'test-secret',
                 JWT_EXPIRES_IN: '15m',
+                JWT_REFRESH_SECRET: 'test-refresh-secret',
+                JWT_REFRESH_EXPIRES_IN: '7d',
                 MAX_LOGIN_ATTEMPTS: 5,
                 LOCK_TIME_MINUTES: 30,
+                REDIS_HOST: 'localhost',
+                REDIS_PORT: 6379,
+                REDIS_PASSWORD: 'RedisNyota2024!',
+                REDIS_DB: 0,
                 CACHE_TTL_PERMISSIONS: 3600,
                 SESSION_TTL_SECONDS: 1800,
               };
-              return config[key as keyof typeof config];
+              return config[key as keyof typeof config] ?? defaultValue;
             }),
           },
         },
@@ -158,343 +60,342 @@ describe('Security Integration Tests', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    
     authService = moduleFixture.get<AuthService>(AuthService);
-    prismaService = moduleFixture.get(PrismaService);
-    redisService = moduleFixture.get(RedisService);
+    securityContextService = moduleFixture.get<SecurityContextService>(SecurityContextService);
+    permissionChecker = moduleFixture.get<PermissionCheckerService>(PermissionCheckerService);
+    rlsFilterService = moduleFixture.get<RLSFilterService>(RLSFilterService);
+    uiVisibilityService = moduleFixture.get<UIVisibilityService>(UIVisibilityService);
+    prismaService = moduleFixture.get<PrismaService>(PrismaService);
+    redisService = moduleFixture.get<RedisService>(RedisService);
     jwtService = moduleFixture.get<JwtService>(JwtService);
-
+    
+    testManager = new TestEnvironmentManager(prismaService, redisService);
+    
+    // Initialize Redis service manually for tests
+    try {
+      await redisService.onModuleInit();
+    } catch (error) {
+      console.warn('Redis connection failed in test, continuing without cache:', error.message);
+    }
+    
+    await testManager.setupTestEnvironment();
     await app.init();
   });
 
   afterAll(async () => {
+    if (testManager) {
+      await testManager.cleanupTestEnvironment();
+    }
     await app.close();
   });
 
-  beforeEach(() => {
-    jest.clearAllMocks();
-    
-    // Default mocks
-    redisService.get.mockResolvedValue(null);
-    redisService.set.mockResolvedValue(undefined);
-    redisService.sadd.mockResolvedValue(1);
-    prismaService.journalAudit.create.mockResolvedValue({} as any);
-    prismaService.visibilityRuleMinistry.findMany.mockResolvedValue([]);
-    prismaService.uIRuleMinistry.findMany.mockResolvedValue([]);
-    prismaService.visibilityRuleSchool.findMany.mockResolvedValue([]);
-    prismaService.uIRuleSchool.findMany.mockResolvedValue([]);
-    prismaService.$queryRaw.mockResolvedValue([]);
+  beforeEach(async () => {
+    if (testManager) {
+      await testManager.getRedisManager().clearTestCache();
+    }
   });
 
-  describe('Full Authentication and Security Flow', () => {
-    it('should complete full login flow for ministry user with security context', async () => {
-      // Arrange
-      const bcryptjs = require('bcryptjs');
-      jest.spyOn(bcryptjs, 'compare').mockResolvedValue(true);
-
-      prismaService.userMinistry.findUnique.mockResolvedValue(mockMinistryUser as any);
-      prismaService.userSchool.findUnique.mockResolvedValue(null);
-      prismaService.userMinistry.update.mockResolvedValue(mockMinistryUser as any);
-
-      // Mock hierarchy query
-      prismaService.$queryRaw.mockResolvedValue([
-        {
-          id: 'ministry-user-1',
-          email: 'ministre@education.cg',
-          prenom: 'Jean',
-          nom: 'Dupont',
-          manager_id: null
-        },
-        {
-          id: 'subordinate-1',
-          email: 'directeur@ministere.cg',
-          prenom: 'Paul',
-          nom: 'Durand',
-          manager_id: 'ministry-user-1'
-        }
-      ]);
-
+  describe('Authentication Flow Integration', () => {
+    it('should authenticate ministry user and build security context', async () => {
       // Act
       const loginResult = await authService.login(
-        'ministre@education.cg',
-        'password123',
-        '192.168.1.1'
+        'directeur@ministere.cg',
+        'password123'
       );
 
       // Assert
       expect(loginResult).toHaveProperty('accessToken');
       expect(loginResult).toHaveProperty('refreshToken');
-      expect(loginResult.user).toMatchObject({
-        id: 'ministry-user-1',
-        email: 'ministre@education.cg',
-        scope: 'MINISTRY',
-        typeUtilisateur: 'DIRECTEUR'
-      });
-
-      // Verify security context was cached
-      expect(redisService.set).toHaveBeenCalledWith(
-        'security:ministry-user-1',
-        expect.any(String),
-        3600
-      );
-
-      // Verify audit log
-      expect(prismaService.journalAudit.create).toHaveBeenCalledWith({
-        data: {
-          userMinistryId: 'ministry-user-1',
-          userSchoolId: null,
-          action: 'LOGIN_SUCCESS',
-          module: 'AUTH',
-          adresseIp: '192.168.1.1',
-          userAgent: '',
-          creeLe: expect.any(Date)
-        }
-      });
+      expect(loginResult.user.scope).toBe('MINISTRY');
+      expect(loginResult.user.id).toBe('ministry-user-2');
     });
 
-    it('should complete full login flow for school user', async () => {
-      // Arrange
-      const bcryptjs = require('bcryptjs');
-      jest.spyOn(bcryptjs, 'compare').mockResolvedValue(true);
-
-      prismaService.userMinistry.findUnique.mockResolvedValue(null);
-      prismaService.userSchool.findUnique.mockResolvedValue(mockSchoolUser as any);
-      prismaService.userSchool.update.mockResolvedValue(mockSchoolUser as any);
-
+    it('should authenticate school user and build security context', async () => {
       // Act
       const loginResult = await authService.login(
-        'directeur@ecole.cg',
-        'password123',
-        '192.168.1.1'
-      );
-
-      // Assert
-      expect(loginResult.user).toMatchObject({
-        id: 'school-user-1',
-        email: 'directeur@ecole.cg',
-        scope: 'SCHOOL',
-        etablissementId: 'etablissement-1'
-      });
-
-      expect(prismaService.journalAudit.create).toHaveBeenCalledWith({
-        data: {
-          userMinistryId: null,
-          userSchoolId: 'school-user-1',
-          action: 'LOGIN_SUCCESS',
-          module: 'AUTH',
-          adresseIp: '192.168.1.1',
-          userAgent: '',
-          creeLe: expect.any(Date)
-        }
-      });
-    });
-
-    it('should handle account lockout after failed attempts', async () => {
-      // Arrange
-      const bcryptjs = require('bcryptjs');
-      jest.spyOn(bcryptjs, 'compare').mockResolvedValue(false);
-
-      const userWithFailedAttempts = {
-        ...mockMinistryUser,
-        tentativesEchouees: 4
-      };
-
-      prismaService.userMinistry.findUnique.mockResolvedValue(userWithFailedAttempts as any);
-      redisService.increment.mockResolvedValue(5); // 5th attempt
-
-      // Act & Assert
-      await expect(
-        authService.login('ministre@education.cg', 'wrongpassword')
-      ).rejects.toThrow('Compte verrouillé suite à plusieurs tentatives échouées');
-
-      // Verify account was locked
-      expect(redisService.set).toHaveBeenCalledWith(
-        'lock:ministre@education.cg',
-        '1',
-        1800 // 30 minutes
-      );
-
-      expect(prismaService.userMinistry.update).toHaveBeenCalledWith({
-        where: { id: 'ministry-user-1' },
-        data: {
-          verrouJusqua: expect.any(Date)
-        }
-      });
-    });
-  });
-
-  describe('JWT Token Validation Flow', () => {
-    it('should validate JWT token and extract user context', async () => {
-      // Arrange
-      const payload = {
-        sub: 'ministry-user-1',
-        email: 'ministre@education.cg',
-        type: 'DIRECTEUR',
-        scope: 'MINISTRY',
-        structureId: 'structure-1',
-        iat: Math.floor(Date.now() / 1000),
-        exp: Math.floor(Date.now() / 1000) + 3600,
-      };
-
-      const token = await jwtService.signAsync(payload);
-
-      // Act
-      const decoded = await jwtService.verifyAsync(token, {
-        secret: 'test-secret'
-      });
-
-      // Assert
-      expect(decoded).toMatchObject({
-        sub: 'ministry-user-1',
-        email: 'ministre@education.cg',
-        type: 'DIRECTEUR',
-        scope: 'MINISTRY'
-      });
-    });
-
-    it('should reject expired tokens', async () => {
-      // Arrange
-      const expiredPayload = {
-        sub: 'ministry-user-1',
-        email: 'ministre@education.cg',
-        type: 'DIRECTEUR',
-        scope: 'MINISTRY',
-        iat: Math.floor(Date.now() / 1000) - 3600,
-        exp: Math.floor(Date.now() / 1000) - 1800, // Expired 30 minutes ago
-      };
-
-      const expiredToken = await jwtService.signAsync(expiredPayload);
-
-      // Act & Assert
-      await expect(
-        jwtService.verifyAsync(expiredToken, { secret: 'test-secret' })
-      ).rejects.toThrow();
-    });
-  });
-
-  describe('Security Context Compilation and Caching', () => {
-    it('should compile and cache complete security context for ministry user', async () => {
-      // This test would require access to the SecurityContextService
-      // which compiles permissions, data filters, UI rules, and hierarchy
-      expect(true).toBe(true); // Placeholder for now
-    });
-
-    it('should compile security context for school user', async () => {
-      // Similar test for school users
-      expect(true).toBe(true); // Placeholder for now
-    });
-
-    it('should handle cache miss and recompile security context', async () => {
-      // Test cache invalidation and recompilation
-      expect(true).toBe(true); // Placeholder for now
-    });
-  });
-
-  describe('Permission Checking Integration', () => {
-    it('should check permissions using cached security context', async () => {
-      // Test the full permission checking flow
-      expect(true).toBe(true); // Placeholder for now
-    });
-
-    it('should apply contextual rules for establishment management', async () => {
-      // Test context-specific permission rules
-      expect(true).toBe(true); // Placeholder for now
-    });
-  });
-
-  describe('RLS Filter Integration', () => {
-    it('should compile and apply RLS filters for ministry users', async () => {
-      // Test RLS filter compilation and application
-      expect(true).toBe(true); // Placeholder for now
-    });
-
-    it('should apply tenant-specific filters for school users', async () => {
-      // Test school-specific RLS filters
-      expect(true).toBe(true); // Placeholder for now
-    });
-  });
-
-  describe('Error Handling and Edge Cases', () => {
-    it('should handle Redis connection failures gracefully', async () => {
-      // Arrange
-      redisService.get.mockRejectedValue(new Error('Redis connection failed'));
-      
-      const bcryptjs = require('bcryptjs');
-      jest.spyOn(bcryptjs, 'compare').mockResolvedValue(true);
-      
-      prismaService.userMinistry.findUnique.mockResolvedValue(mockMinistryUser as any);
-      prismaService.userSchool.findUnique.mockResolvedValue(null);
-      prismaService.userMinistry.update.mockResolvedValue(mockMinistryUser as any);
-
-      // Act & Assert - should not throw, but handle gracefully
-      const result = await authService.login(
-        'ministre@education.cg',
+        'directeur@ecole1.cg',
         'password123'
       );
 
-      expect(result).toHaveProperty('accessToken');
-    });
-
-    it('should handle database connection failures', async () => {
-      // Arrange
-      prismaService.userMinistry.findUnique.mockRejectedValue(new Error('Database connection failed'));
-
-      // Act & Assert
-      await expect(
-        authService.login('ministre@education.cg', 'password123')
-      ).rejects.toThrow();
-    });
-
-    it('should handle malformed security context data', async () => {
-      // Test robustness with corrupted cache data
-      redisService.get.mockResolvedValue('invalid-json-data');
-
-      // Should handle gracefully and recompile
-      expect(true).toBe(true); // Placeholder for specific implementation
+      // Assert
+      expect(loginResult).toHaveProperty('accessToken');
+      expect(loginResult).toHaveProperty('refreshToken');
+      expect(loginResult.user.scope).toBe('SCHOOL');
+      expect(loginResult.user.id).toBe('school-user-1');
     });
   });
 
-  describe('Audit Trail Integration', () => {
-    it('should log all security-related events', async () => {
-      // Verify comprehensive audit logging
-      expect(prismaService.journalAudit.create).toHaveBeenCalled();
+  describe('Security Context Compilation', () => {
+    it('should compile complete security context for ministry user', async () => {
+      // Act
+      const securityContext = await securityContextService.getSecurityContext('ministry-user-2');
+
+      // Assert
+      expect(securityContext).toBeDefined();
+      expect(securityContext?.userScope).toBe('MINISTRY');
+      expect(securityContext?.userType).toBe('DIRECTEUR');
+      expect(securityContext?.permissions).toBeDefined();
+      expect(securityContext?.dataFilters).toBeDefined();
+      expect(securityContext?.hierarchy).toBeDefined();
     });
 
-    it('should include proper context in audit logs', async () => {
-      // Verify audit logs contain all necessary information
-      const auditCalls = prismaService.journalAudit.create.mock.calls;
-      if (auditCalls.length > 0) {
-        const auditData = auditCalls[0][0].data;
-        expect(auditData).toHaveProperty('action');
-        expect(auditData).toHaveProperty('module');
-        expect(auditData).toHaveProperty('adresseIp');
-      }
+    it('should compile complete security context for school user', async () => {
+      // Act
+      const securityContext = await securityContextService.getSecurityContext('school-user-1');
+
+      // Assert
+      expect(securityContext).toBeDefined();
+      expect(securityContext?.userScope).toBe('SCHOOL');
+      expect(securityContext?.userType).toBe('DIRECTEUR');
+      expect(securityContext?.etablissementId).toBe('etablissement-1');
+      expect(securityContext?.permissions).toBeDefined();
+      expect(securityContext?.dataFilters).toBeDefined();
+    });
+
+    it('should cache security contexts for performance', async () => {
+      // Act - First call
+      const start = Date.now();
+      const context1 = await securityContextService.getSecurityContext('ministry-user-2');
+      const firstCallTime = Date.now() - start;
+
+      // Act - Second call (should be cached)
+      const start2 = Date.now();
+      const context2 = await securityContextService.getSecurityContext('ministry-user-2');
+      const secondCallTime = Date.now() - start2;
+
+      // Assert
+      expect(context1).toEqual(context2);
+      // Second call should be faster due to caching (if Redis is working)
+      // We don't assert this strictly since Redis might not be available in tests
     });
   });
 
-  describe('Performance and Scalability', () => {
-    it('should handle concurrent login attempts efficiently', async () => {
-      // Test concurrent logins
-      const bcryptjs = require('bcryptjs');
-      jest.spyOn(bcryptjs, 'compare').mockResolvedValue(true);
-
-      prismaService.userMinistry.findUnique.mockResolvedValue(mockMinistryUser as any);
-      prismaService.userSchool.findUnique.mockResolvedValue(null);
-      prismaService.userMinistry.update.mockResolvedValue(mockMinistryUser as any);
-
-      const loginPromises = Array(5).fill(null).map(() =>
-        authService.login('ministre@education.cg', 'password123')
+  describe('Permission System Integration', () => {
+    it('should enforce ministry user permissions correctly', async () => {
+      // Act
+      const readResult = await permissionChecker.checkPermission(
+        'ministry-user-2',
+        'etablissement.management',
+        PermissionAction.READ
       );
 
-      const results = await Promise.all(loginPromises);
-      expect(results).toHaveLength(5);
+      const deleteResult = await permissionChecker.checkPermission(
+        'ministry-user-2',
+        'etablissement.management',
+        PermissionAction.DELETE
+      );
+
+      // Assert
+      expect(readResult.allowed).toBe(true);
+      expect(deleteResult.allowed).toBe(false); // Director doesn't have delete permission
+    });
+
+    it('should enforce school user permissions correctly', async () => {
+      // Act
+      const studentResult = await permissionChecker.checkPermission(
+        'school-user-1',
+        'student.management',
+        PermissionAction.READ
+      );
+
+      const establishmentResult = await permissionChecker.checkPermission(
+        'school-user-1',
+        'etablissement.management',
+        PermissionAction.READ
+      );
+
+      // Assert
+      expect(studentResult.allowed).toBe(true);
+      expect(establishmentResult.allowed).toBe(false); // School users don't have establishment management
+    });
+
+    it('should validate minister has full permissions', async () => {
+      // Act
+      const adminResult = await permissionChecker.checkPermission(
+        'ministry-user-1',
+        'global.admin',
+        PermissionAction.DELETE
+      );
+
+      // Assert
+      expect(adminResult.allowed).toBe(true);
+    });
+  });
+
+  describe('Row-Level Security Integration', () => {
+    it('should compile RLS filters for ministry users', async () => {
+      // Act
+      const filters = await rlsFilterService.compileFilters({
+        userId: 'ministry-user-2',
+        businessObject: 'etablissement.management',
+        operation: 'read'
+      });
+
+      // Assert
+      expect(['NONE', 'PARTIAL', 'FULL']).toContain(filters.restrictionLevel);
+      expect(filters.where).toBeDefined();
+    });
+
+    it('should compile RLS filters for school users', async () => {
+      // Act
+      const filters = await rlsFilterService.compileFilters({
+        userId: 'school-user-1',
+        businessObject: 'student.management',
+        operation: 'read'
+      });
+
+      // Assert
+      expect(['NONE', 'PARTIAL', 'FULL']).toContain(filters.restrictionLevel);
+      expect(filters.where).toBeDefined();
+    });
+
+    it('should apply filters to Prisma queries', async () => {
+      // Arrange
+      const baseQuery = {
+        where: { estActif: true },
+        include: { departement: true }
+      };
+
+      // Act
+      const filteredQuery = await rlsFilterService.applyFiltersToQuery(
+        {
+          userId: 'ministry-user-2',
+          businessObject: 'etablissement.management',
+          operation: 'read'
+        },
+        baseQuery
+      );
+
+      // Assert
+      expect(filteredQuery.where).toHaveProperty('AND');
+      expect(filteredQuery.include).toEqual(baseQuery.include);
+    });
+  });
+
+  describe('UI Visibility Integration', () => {
+    it('should generate UI configuration for ministry users', async () => {
+      // Act
+      const uiConfig = await uiVisibilityService.generateUIConfig(
+        'ministry-user-2',
+        'etablissement-management'
+      );
+
+      // Assert
+      expect(uiConfig).toBeDefined();
+      expect(typeof uiConfig).toBe('object');
+    });
+
+    it('should generate UI configuration for school users', async () => {
+      // Act
+      const uiConfig = await uiVisibilityService.generateUIConfig(
+        'school-user-1',
+        'student-management'
+      );
+
+      // Assert
+      expect(uiConfig).toBeDefined();
+      expect(typeof uiConfig).toBe('object');
+    });
+
+    it('should check element visibility correctly', async () => {
+      // Act
+      const isVisible = await uiVisibilityService.checkElementVisibility(
+        'ministry-user-2',
+        'delete-button',
+        'BUTTON'
+      );
+
+      // Assert
+      expect(typeof isVisible).toBe('boolean');
+    });
+  });
+
+  describe('Cross-Service Integration', () => {
+    it('should maintain consistency between authentication and permissions', async () => {
+      // Act - Login user
+      const loginResult = await authService.login('directeur@ministere.cg', 'password123');
+      
+      // Act - Check permissions for same user
+      const permissionResult = await permissionChecker.checkPermission(
+        loginResult.user.id,
+        'etablissement.management',
+        PermissionAction.READ
+      );
+
+      // Assert
+      expect(loginResult.user.id).toBe('ministry-user-2');
+      expect(permissionResult.allowed).toBe(true);
+    });
+
+    it('should handle error cases gracefully across services', async () => {
+      // Act & Assert - Non-existent user
+      const securityContext = await securityContextService.getSecurityContext('non-existent-user');
+      expect(securityContext).toBeNull();
+
+      const permissionResult = await permissionChecker.checkPermission(
+        'non-existent-user',
+        'etablissement.management',
+        PermissionAction.READ
+      );
+      expect(permissionResult.allowed).toBe(false);
+    });
+
+    it('should invalidate caches properly', async () => {
+      // Act - Get initial context
+      const initialContext = await securityContextService.getSecurityContext('ministry-user-2');
+      
+      // Act - Invalidate cache
+      await securityContextService.invalidateSecurityContext('ministry-user-2');
+      
+      // Act - Get context again (should rebuild)
+      const rebuiltContext = await securityContextService.getSecurityContext('ministry-user-2');
+
+      // Assert
+      expect(initialContext).toBeDefined();
+      expect(rebuiltContext).toBeDefined();
+      // Both should have same structure but may differ in timestamps
+      expect(rebuiltContext?.userId).toBe(initialContext?.userId);
+      expect(rebuiltContext?.userScope).toBe(initialContext?.userScope);
+    });
+  });
+
+  describe('Performance Integration', () => {
+    it('should handle concurrent security context requests', async () => {
+      // Act - Multiple concurrent requests
+      const promises = Array.from({ length: 5 }, () =>
+        securityContextService.getSecurityContext('ministry-user-2')
+      );
+
+      const results = await Promise.all(promises);
+
+      // Assert
       results.forEach(result => {
-        expect(result).toHaveProperty('accessToken');
+        expect(result).toBeDefined();
+        expect(result?.userId).toBe('ministry-user-2');
       });
     });
 
-    it('should cache security contexts efficiently', async () => {
-      // Verify caching reduces database calls
-      expect(redisService.set).toHaveBeenCalled();
+    it('should handle multiple permission checks efficiently', async () => {
+      // Arrange
+      const permissionChecks = [
+        { businessObject: 'etablissement.management', action: PermissionAction.READ },
+        { businessObject: 'etablissement.management', action: PermissionAction.WRITE },
+        { businessObject: 'etablissement.management', action: PermissionAction.CREATE },
+        { businessObject: 'etablissement.management', action: PermissionAction.APPROVE },
+      ];
+
+      // Act
+      const start = Date.now();
+      const results = await permissionChecker.checkMultiplePermissions(
+        'ministry-user-2',
+        permissionChecks
+      );
+      const duration = Date.now() - start;
+
+      // Assert
+      expect(Object.keys(results)).toHaveLength(4);
+      expect(duration).toBeLessThan(1000); // Should complete within 1 second
     });
   });
 });

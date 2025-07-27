@@ -1,0 +1,702 @@
+{
+	"info": {
+		"_postman_id": "nyota-user-management-api",
+		"name": "NYOTA User Management API",
+		"description": "Complete API collection for testing NYOTA User Management System with Hierarchy Management",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{access_token}}",
+				"type": "string"
+			}
+		]
+	},
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Set base URL if not already set",
+					"if (!pm.globals.has('base_url')) {",
+					"    pm.globals.set('base_url', 'http://localhost:3000');",
+					"}"
+				]
+			}
+		}
+	],
+	"item": [
+		{
+			"name": "Authentication",
+			"item": [
+				{
+					"name": "Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Login successful', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Response has required fields', function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('accessToken');",
+									"    pm.expect(jsonData).to.have.property('refreshToken');",
+									"    pm.expect(jsonData).to.have.property('user');",
+									"});",
+									"",
+									"// Save tokens for subsequent requests",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    pm.globals.set('access_token', jsonData.accessToken);",
+									"    pm.globals.set('refresh_token', jsonData.refreshToken);",
+									"    pm.globals.set('user_id', jsonData.user.id);",
+									"    pm.globals.set('user_scope', jsonData.user.scope);",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"admin@education.cg\",\n  \"password\": \"AdminPassword123!\",\n  \"ipAddress\": \"127.0.0.1\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/auth/login",
+							"host": ["{{base_url}}"],
+							"path": ["auth", "login"]
+						},
+						"description": "Login with email and password to get access token"
+					}
+				},
+				{
+					"name": "Refresh Token",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"refreshToken\": \"{{refresh_token}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/auth/refresh",
+							"host": ["{{base_url}}"],
+							"path": ["auth", "refresh"]
+						}
+					}
+				},
+				{
+					"name": "Logout",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/auth/logout",
+							"host": ["{{base_url}}"],
+							"path": ["auth", "logout"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Ministry Users",
+			"item": [
+				{
+					"name": "Create Ministry User",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('User created successfully', function () {",
+									"    pm.response.to.have.status(201);",
+									"});",
+									"",
+									"if (pm.response.code === 201) {",
+									"    var jsonData = pm.response.json();",
+									"    pm.globals.set('created_ministry_user_id', jsonData.id);",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"test.ministry@education.cg\",\n  \"password\": \"TestPassword123!\",\n  \"prenom\": \"Jean\",\n  \"nom\": \"Dupont\",\n  \"typeUtilisateur\": \"DIRECTEUR\",\n  \"titre\": \"Directeur de Test\",\n  \"securityGroupIds\": []\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/users/ministry",
+							"host": ["{{base_url}}"],
+							"path": ["users", "ministry"]
+						}
+					}
+				},
+				{
+					"name": "Get All Ministry Users",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/users/ministry?page=1&limit=10",
+							"host": ["{{base_url}}"],
+							"path": ["users", "ministry"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Ministry User by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/users/ministry/{{created_ministry_user_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["users", "ministry", "{{created_ministry_user_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Search Ministry Users",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/users/ministry?search=Jean&typeUtilisateur=DIRECTEUR",
+							"host": ["{{base_url}}"],
+							"path": ["users", "ministry"],
+							"query": [
+								{
+									"key": "search",
+									"value": "Jean"
+								},
+								{
+									"key": "typeUtilisateur",
+									"value": "DIRECTEUR"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Update Ministry User",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"prenom\": \"Jean-Updated\",\n  \"titre\": \"Directeur Principal\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/users/ministry/{{created_ministry_user_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["users", "ministry", "{{created_ministry_user_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Delete Ministry User",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/users/ministry/{{created_ministry_user_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["users", "ministry", "{{created_ministry_user_id}}"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "School Users",
+			"item": [
+				{
+					"name": "Create School User",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('User created successfully', function () {",
+									"    pm.response.to.have.status(201);",
+									"});",
+									"",
+									"if (pm.response.code === 201) {",
+									"    var jsonData = pm.response.json();",
+									"    pm.globals.set('created_school_user_id', jsonData.id);",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"test.school@education.cg\",\n  \"password\": \"TestPassword123!\",\n  \"prenom\": \"Marie\",\n  \"nom\": \"Martin\",\n  \"typeUtilisateur\": \"ENSEIGNANT\",\n  \"matricule\": \"ENS001\",\n  \"dateNaissance\": \"1985-06-15\",\n  \"classe\": \"6ème A\",\n  \"matierePrincipale\": \"Mathématiques\",\n  \"etablissementId\": \"dummy-etablissement-id\",\n  \"securityGroupIds\": []\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/users/school",
+							"host": ["{{base_url}}"],
+							"path": ["users", "school"]
+						}
+					}
+				},
+				{
+					"name": "Get All School Users",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/users/school?page=1&limit=10",
+							"host": ["{{base_url}}"],
+							"path": ["users", "school"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Filter School Users by Class",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/users/school?classe=6ème A&typeUtilisateur=ENSEIGNANT",
+							"host": ["{{base_url}}"],
+							"path": ["users", "school"],
+							"query": [
+								{
+									"key": "classe",
+									"value": "6ème A"
+								},
+								{
+									"key": "typeUtilisateur",
+									"value": "ENSEIGNANT"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Update School User",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"classe\": \"5ème A\",\n  \"matierePrincipale\": \"Physique-Chimie\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/users/school/{{created_school_user_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["users", "school", "{{created_school_user_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Delete School User",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/users/school/{{created_school_user_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["users", "school", "{{created_school_user_id}}"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Hierarchy Management",
+			"item": [
+				{
+					"name": "Get User Hierarchy",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/users/hierarchy?rootUserId={{user_id}}&maxDepth=3&includeUserData=true",
+							"host": ["{{base_url}}"],
+							"path": ["users", "hierarchy"],
+							"query": [
+								{
+									"key": "rootUserId",
+									"value": "{{user_id}}"
+								},
+								{
+									"key": "maxDepth",
+									"value": "3"
+								},
+								{
+									"key": "includeUserData",
+									"value": "true"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Organizational Chart",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/users/hierarchy/orgchart?rootUserId={{user_id}}&maxDepth=5",
+							"host": ["{{base_url}}"],
+							"path": ["users", "hierarchy", "orgchart"],
+							"query": [
+								{
+									"key": "rootUserId",
+									"value": "{{user_id}}"
+								},
+								{
+									"key": "maxDepth",
+									"value": "5"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Update User Hierarchy",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"userId\": \"{{created_ministry_user_id}}\",\n  \"newManagerId\": \"{{user_id}}\",\n  \"reason\": \"Reorganization - test via Postman\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/users/hierarchy/update",
+							"host": ["{{base_url}}"],
+							"path": ["users", "hierarchy", "update"]
+						}
+					}
+				},
+				{
+					"name": "Bulk Hierarchy Update",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"updates\": [\n    {\n      \"userId\": \"{{created_ministry_user_id}}\",\n      \"newManagerId\": null,\n      \"reason\": \"Remove manager - bulk test\"\n    }\n  ]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/users/hierarchy/bulk-update",
+							"host": ["{{base_url}}"],
+							"path": ["users", "hierarchy", "bulk-update"]
+						}
+					}
+				},
+				{
+					"name": "Validate Hierarchy Change",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"userId\": \"{{created_ministry_user_id}}\",\n  \"newManagerId\": \"{{user_id}}\",\n  \"reason\": \"Validation test\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/users/hierarchy/validate",
+							"host": ["{{base_url}}"],
+							"path": ["users", "hierarchy", "validate"]
+						}
+					}
+				},
+				{
+					"name": "Get Hierarchy Analytics",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/users/hierarchy/analytics/{{user_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["users", "hierarchy", "analytics", "{{user_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Get Hierarchy Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/users/hierarchy/health",
+							"host": ["{{base_url}}"],
+							"path": ["users", "hierarchy", "health"]
+						}
+					}
+				},
+				{
+					"name": "Search Available Managers",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/users/hierarchy/managers/search?q=Directeur&excludeUserId={{created_ministry_user_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["users", "hierarchy", "managers", "search"],
+							"query": [
+								{
+									"key": "q",
+									"value": "Directeur"
+								},
+								{
+									"key": "excludeUserId",
+									"value": "{{created_ministry_user_id}}"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Remove Manager",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"reason\": \"Remove manager - test via Postman\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/users/hierarchy/{{created_ministry_user_id}}/manager",
+							"host": ["{{base_url}}"],
+							"path": ["users", "hierarchy", "{{created_ministry_user_id}}", "manager"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Reorganization Planning",
+			"item": [
+				{
+					"name": "Create Reorganization Plan",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Test Reorganization Plan\",\n  \"description\": \"Test reorganization created via Postman\",\n  \"changes\": [\n    {\n      \"userId\": \"{{created_ministry_user_id}}\",\n      \"newManagerId\": \"{{user_id}}\",\n      \"reason\": \"Restructuration test\"\n    }\n  ],\n  \"effectiveDate\": \"2024-02-01T00:00:00.000Z\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/users/hierarchy/reorganization/plan",
+							"host": ["{{base_url}}"],
+							"path": ["users", "hierarchy", "reorganization", "plan"]
+						}
+					}
+				},
+				{
+					"name": "Simulate Reorganization",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"changes\": [\n    {\n      \"userId\": \"{{created_ministry_user_id}}\",\n      \"newManagerId\": null,\n      \"reason\": \"Simulation test - remove manager\"\n    }\n  ]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/users/hierarchy/reorganization/simulate",
+							"host": ["{{base_url}}"],
+							"path": ["users", "hierarchy", "reorganization", "simulate"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "User Statistics",
+			"item": [
+				{
+					"name": "Get User Statistics",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/users/statistics",
+							"host": ["{{base_url}}"],
+							"path": ["users", "statistics"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Error Handling Tests",
+			"item": [
+				{
+					"name": "Test 404 - Non-existent User",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/users/ministry/00000000-0000-0000-0000-000000000000",
+							"host": ["{{base_url}}"],
+							"path": ["users", "ministry", "00000000-0000-0000-0000-000000000000"]
+						}
+					}
+				},
+				{
+					"name": "Test 400 - Invalid Email Format",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"invalid-email\",\n  \"password\": \"TestPassword123!\",\n  \"prenom\": \"Test\",\n  \"nom\": \"User\",\n  \"typeUtilisateur\": \"DIRECTEUR\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/users/ministry",
+							"host": ["{{base_url}}"],
+							"path": ["users", "ministry"]
+						}
+					}
+				},
+				{
+					"name": "Test 400 - Weak Password",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"weak.password@education.cg\",\n  \"password\": \"123\",\n  \"prenom\": \"Test\",\n  \"nom\": \"User\",\n  \"typeUtilisateur\": \"DIRECTEUR\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/users/ministry",
+							"host": ["{{base_url}}"],
+							"path": ["users", "ministry"]
+						}
+					}
+				},
+				{
+					"name": "Test 401 - No Authentication",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/users/ministry",
+							"host": ["{{base_url}}"],
+							"path": ["users", "ministry"]
+						}
+					}
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:3000",
+			"type": "string"
+		}
+	]
+}

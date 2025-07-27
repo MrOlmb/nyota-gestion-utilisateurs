@@ -4,7 +4,7 @@ import { Redis } from 'ioredis';
 
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
-  private redisClient: Redis;
+  private redisClient!: Redis;
 
   constructor(private configService: ConfigService) {}
 
@@ -37,6 +37,10 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
    * Set a key-value pair with optional TTL
    */
   async set(key: string, value: string, ttlSeconds?: number): Promise<void> {
+    if (!this.redisClient) {
+      console.warn('Redis client not initialized, ignoring set operation');
+      return;
+    }
     if (ttlSeconds) {
       await this.redisClient.setex(key, ttlSeconds, value);
     } else {
@@ -48,6 +52,10 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
    * Get value by key
    */
   async get(key: string): Promise<string | null> {
+    if (!this.redisClient) {
+      console.warn('Redis client not initialized, returning null');
+      return null;
+    }
     return await this.redisClient.get(key);
   }
 

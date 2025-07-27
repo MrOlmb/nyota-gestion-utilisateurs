@@ -124,6 +124,11 @@ export class SecurityContextService {
    * Compile le contexte de sécurité complet pour un utilisateur
    */
   private async compileSecurityContext(userId: string): Promise<SecurityContextCache | null> {
+    if (!userId || typeof userId !== 'string') {
+      this.logger.warn('Invalid userId provided to compileSecurityContext:', userId);
+      return null;
+    }
+
     // 1. Trouver l'utilisateur dans les deux tables
     let user: AuthUser | null = null;
     let userScope: 'MINISTRY' | 'SCHOOL';
@@ -365,34 +370,37 @@ export class SecurityContextService {
     };
 
     try {
-      const result = await this.prisma.$queryRaw`
-        WITH RECURSIVE subordinates AS (
-          SELECT id, email, prenom, nom, manager_id, 0 as level
-          FROM users_ministry
-          WHERE id = ${userId}::uuid
-          
-          UNION ALL
-          
-          SELECT u.id, u.email, u.prenom, u.nom, u.manager_id, s.level + 1
-          FROM users_ministry u
-          INNER JOIN subordinates s ON u.manager_id = s.id
-          WHERE u.est_actif = true
-        )
-        SELECT * FROM subordinates;
-      `;
+      // Get the user's manager
+      const user = await this.prisma.userMinistry.findUnique({
+        where: { id: userId },
+        select: { managerId: true }
+      });
 
-      for (const row of result as any[]) {
-        if (row.id === userId) {
-          hierarchy.managerId = row.manager_id;
-        } else {
-          hierarchy.subordinates.push({
-            id: row.id,
-            email: row.email,
-            fullName: `${row.prenom} ${row.nom}`,
-            level: row.level
-          });
-        }
+      if (user?.managerId) {
+        hierarchy.managerId = user.managerId;
       }
+
+      // Get direct subordinates
+      const subordinates = await this.prisma.userMinistry.findMany({
+        where: {
+          managerId: userId,
+          estActif: true
+        },
+        select: {
+          id: true,
+          email: true,
+          prenom: true,
+          nom: true
+        }
+      });
+
+      hierarchy.subordinates = subordinates.map(sub => ({
+        id: sub.id,
+        email: sub.email,
+        fullName: `${sub.prenom} ${sub.nom}`,
+        level: 1
+      }));
+
     } catch (error) {
       this.logger.error(`Error calculating hierarchy for user ${userId}:`, error);
     }

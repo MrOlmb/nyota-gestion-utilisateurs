@@ -53,3 +53,5 @@ docker-compose.override.yml
 .eslintcache
 .npm/
 ./"Project Knowledge"
+.2025-07-25-work-session.txt
+.CLAUDE.md

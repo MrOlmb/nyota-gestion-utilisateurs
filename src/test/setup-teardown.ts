@@ -75,7 +75,7 @@ export const TestSeeds = {
     {
       id: 'ministry-user-1',
       email: 'ministre@education.cg',
-      passwordHash: '$2a$10$hashedpassword',
+      passwordHash: '$2b$10$dUFmSVzVoOykj6urBrkKh.yj6Cgr6ZiIgmYYwlY0Ut7C1j3lnpZMu', // password123
       prenom: 'Jean',
       nom: 'Ministre',
       typeUtilisateur: UserMinistryType.MINISTRE,
@@ -84,7 +84,7 @@ export const TestSeeds = {
     {
       id: 'ministry-user-2',
       email: 'directeur@ministere.cg',
-      passwordHash: '$2a$10$hashedpassword',
+      passwordHash: '$2b$10$dUFmSVzVoOykj6urBrkKh.yj6Cgr6ZiIgmYYwlY0Ut7C1j3lnpZMu', // password123
       prenom: 'Marie',
       nom: 'Directrice',
       typeUtilisateur: UserMinistryType.DIRECTEUR,
@@ -115,7 +115,7 @@ export const TestSeeds = {
     {
       id: 'school-user-1',
       email: 'directeur@ecole1.cg',
-      passwordHash: '$2a$10$hashedpassword',
+      passwordHash: '$2b$10$dUFmSVzVoOykj6urBrkKh.yj6Cgr6ZiIgmYYwlY0Ut7C1j3lnpZMu', // password123
       prenom: 'Sophie',
       nom: 'Directrice',
       typeUtilisateur: UserSchoolType.DIRECTEUR,
@@ -357,11 +357,11 @@ export async function withTestTransaction<T>(
     try {
       const result = await callback(tx);
       // We throw a custom error to ensure rollback.
-      throw new Error('ROLLBACK_INTENDED');
+      throw { rollback: true, result };
     } catch (error) {
-      if (error.message === 'ROLLBACK_INTENDED') {
+      if (error.rollback) {
         // This is expected, do nothing. The transaction is rolled back.
-        return;
+        return error.result;
       }
       // Re-throw other errors
       throw error;
