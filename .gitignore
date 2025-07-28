@@ -55,3 +55,5 @@ docker-compose.override.yml
 ./"Project Knowledge"
 .2025-07-25-work-session.txt
 .CLAUDE.md
+*.md
+api_test_queries.json
