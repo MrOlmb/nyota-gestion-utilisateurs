@@ -328,7 +328,7 @@ async function seedAdminUser() {
     });
 
     // 5. Hasher les mots de passe
-    const defaultPasswordHash = await bcryptjs.hash('ChangeMe2024!', 12);
+    const defaultPasswordHash = await bcryptjs.hash('admin123', 12);
 
     // 6. Créer les utilisateurs du ministère
     console.log('  👥 Création des utilisateurs ministère...');
@@ -712,7 +712,7 @@ async function seedAdminUser() {
 
     // École rurale dans le Pool
     const districtKinkala = await prisma.district.findFirst({
-      where: { code: 'PL-D1' },
+      where: { code: 'PL-KIN' },
     });
     const communeKinkala = await prisma.commune.findFirst({
       where: { districtId: districtKinkala.id },
@@ -749,10 +749,10 @@ async function seedAdminUser() {
 
     // Récupérer les groupes école
     const directionGroup = await prisma.securityGroupSchool.findFirst({
-      where: { nom: 'Direction' },
+      where: { nom: 'Direction École' },
     });
-    const censeursGroup = await prisma.securityGroupSchool.findFirst({
-      where: { nom: 'Censeurs' },
+    const personnelAdminGroup = await prisma.securityGroupSchool.findFirst({
+      where: { nom: 'Personnel Administratif' },
     });
     const enseignantsGroup = await prisma.securityGroupSchool.findFirst({
       where: { nom: 'Enseignants' },
@@ -846,13 +846,13 @@ async function seedAdminUser() {
       where: {
         userId_groupId: {
           userId: censeur.id,
-          groupId: censeursGroup.id,
+          groupId: personnelAdminGroup.id,
         },
       },
       update: {},
       create: {
         userId: censeur.id,
-        groupId: censeursGroup.id,
+        groupId: personnelAdminGroup.id,
         estActif: true,
       },
     });
@@ -1041,59 +1041,59 @@ async function seedAdminUser() {
     console.log('  ------------------------------------------------');
     console.log('  Super Admin:');
     console.log('    Email: admin@mepsa.gouv.cg');
-    console.log('    Mot de passe: ChangeMe2024!');
+    console.log('    Mot de passe: admin123');
     console.log('  ------------------------------------------------');
     console.log('  Ministre:');
     console.log('    Email: ministre@mepsa.gouv.cg');
-    console.log('    Mot de passe: ChangeMe2024!');
+    console.log('    Mot de passe: admin123');
     console.log('  ------------------------------------------------');
     console.log('  Directeur de Cabinet:');
     console.log('    Email: dircab@mepsa.gouv.cg');
-    console.log('    Mot de passe: ChangeMe2024!');
+    console.log('    Mot de passe: admin123');
     console.log('  ------------------------------------------------');
     console.log('  Secrétaire Général:');
     console.log('    Email: sg@mepsa.gouv.cg');
-    console.log('    Mot de passe: ChangeMe2024!');
+    console.log('    Mot de passe: admin123');
     console.log('  ------------------------------------------------');
     console.log('  Inspecteur Général:');
     console.log('    Email: ig@mepsa.gouv.cg');
-    console.log('    Mot de passe: ChangeMe2024!');
+    console.log('    Mot de passe: admin123');
     console.log('  ------------------------------------------------');
     console.log('  Directeur Enseignement Primaire:');
     console.log('    Email: dep@mepsa.gouv.cg');
-    console.log('    Mot de passe: ChangeMe2024!');
+    console.log('    Mot de passe: admin123');
     console.log('  ------------------------------------------------');
     console.log('  Directeur Enseignement Secondaire:');
     console.log('    Email: des@mepsa.gouv.cg');
-    console.log('    Mot de passe: ChangeMe2024!');
+    console.log('    Mot de passe: admin123');
     console.log('  ------------------------------------------------');
     console.log('  Délégué Départemental Brazzaville:');
     console.log('    Email: dd.brazza@mepsa.gouv.cg');
-    console.log('    Mot de passe: ChangeMe2024!');
+    console.log('    Mot de passe: admin123');
     console.log('  ================================================');
     console.log('  UTILISATEURS ÉCOLE:');
     console.log('  ------------------------------------------------');
     console.log('  Directeur École Primaire:');
     console.log('    Email: directeur.epfrat@education.cg');
-    console.log('    Mot de passe: ChangeMe2024!');
+    console.log('    Mot de passe: admin123');
     console.log('  ------------------------------------------------');
     console.log('  Proviseur Lycée:');
     console.log('    Email: proviseur.sankara@education.cg');
-    console.log('    Mot de passe: ChangeMe2024!');
+    console.log('    Mot de passe: admin123');
     console.log('  ------------------------------------------------');
     console.log('  Enseignants:');
     console.log('    Email: prof.maths@sankara.education.cg');
     console.log('    Email: prof.francais@epfrat.education.cg');
-    console.log('    Mot de passe: ChangeMe2024!');
+    console.log('    Mot de passe: admin123');
     console.log('  ------------------------------------------------');
     console.log('  Élèves:');
     console.log('    Email: grace.moukassa@sankara.education.cg');
     console.log('    Email: jean.biyoudi@epfrat.education.cg');
-    console.log('    Mot de passe: ChangeMe2024!');
+    console.log('    Mot de passe: admin123');
     console.log('  ------------------------------------------------');
     console.log('  Parent:');
     console.log('    Email: parent.moukassa@gmail.com');
-    console.log('    Mot de passe: ChangeMe2024!');
+    console.log('    Mot de passe: admin123');
     console.log('  ================================================');
 
     console.log('\n✅ Utilisateurs et structures créés avec succès');

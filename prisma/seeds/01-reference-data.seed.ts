@@ -103,9 +103,9 @@ async function seedGeographicalData() {
     { nom: 'Yamba', code: 'BZ-YAM', departementCode: 'BZ' },
 
     // Congo-Oubangui
-    { nom: 'Impfondo', code: 'OU-IMP', departementCode: 'OU' },
-    { nom: 'Dongou', code: 'OU-DON', departementCode: 'OU' },
-    { nom: 'Mokéko', code: 'OU-MOK', departementCode: 'OU' },
+    { nom: 'Betou', code: 'OU-BET', departementCode: 'OU' },
+    { nom: 'Okoyo', code: 'OU-OKO', departementCode: 'OU' },
+    { nom: 'Loukolela', code: 'OU-LOU', departementCode: 'OU' },
 
     // Cuvette
     { nom: 'Owando', code: 'CU-OWA', departementCode: 'CU' },

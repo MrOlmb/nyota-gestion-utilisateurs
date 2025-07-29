@@ -33,6 +33,7 @@ export class SecurityGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
+    console.log(`🔐 SecurityGuard: Processing request to ${request.url}`);
     
     try {
       // 1. Extraire et valider le JWT
@@ -42,9 +43,17 @@ export class SecurityGuard implements CanActivate {
       }
 
       const payload = await this.validateToken(token);
+      console.log(`🔐 SecurityGuard: JWT payload decoded, userId=${payload.sub}`);
       
       // 2. Ajouter les informations utilisateur à la requête
-      request.user = payload;
+      request.user = {
+        id: payload.sub,  // Map sub to id for UserProfile interface
+        email: payload.email,
+        scope: payload.scope,
+        type: payload.type,
+        structureId: payload.structureId,
+        establishmentId: payload.establishmentId
+      };
       request.userId = payload.sub;
 
       // 3. Vérifier si l'endpoint nécessite seulement l'authentification
@@ -66,8 +75,10 @@ export class SecurityGuard implements CanActivate {
       }
 
       // 6. Vérifier les permissions spécifiques
+      console.log(`🔐 SecurityGuard: About to check permissions for userId=${payload.sub}`);
       await this.checkPermissions(context, payload.sub);
 
+      console.log(`🔐 SecurityGuard: All permission checks passed for userId=${payload.sub}`);
       return true;
 
     } catch (error) {
@@ -109,13 +120,24 @@ export class SecurityGuard implements CanActivate {
    * Vérifie les permissions requises pour l'endpoint
    */
   private async checkPermissions(context: ExecutionContext, userId: string): Promise<void> {
+    console.log(`🔐 SecurityGuard.checkPermissions: Called with userId=${userId}`);
+    
+    // Validate userId is defined
+    if (!userId) {
+      console.log(`🔐 SecurityGuard.checkPermissions: userId is undefined!`);
+      throw new UnauthorizedException('User ID is required for permission checking');
+    }
+
     // Vérifier les permissions normales (toutes requises)
     const permissionRequirements = this.reflector.get<PermissionRequirement | PermissionRequirement[]>(
       PERMISSION_KEY,
       context.getHandler()
     );
 
+    console.log(`🔐 SecurityGuard.checkPermissions: Found permission requirements:`, permissionRequirements);
+
     if (permissionRequirements) {
+      console.log(`🔐 SecurityGuard.checkPermissions: Validating required permissions for userId=${userId}`);
       await this.validateRequiredPermissions(userId, permissionRequirements);
     }
 

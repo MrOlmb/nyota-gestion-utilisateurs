@@ -66,9 +66,11 @@ export class SecurityContextService {
    * Récupère le contexte de sécurité depuis le cache ou le compile si nécessaire
    */
   async getSecurityContext(userId: string): Promise<SecurityContextCache | null> {
+    this.logger.debug(`Getting security context for user: ${userId}`);
     try {
       // 1. Vérifier le cache Redis
       const cachedContext = await this.getCachedContext(userId);
+      
       if (cachedContext && this.isContextValid(cachedContext)) {
         this.logger.debug(`Security context retrieved from cache for user ${userId}`);
         return cachedContext;
@@ -80,6 +82,7 @@ export class SecurityContextService {
       
       if (newContext) {
         await this.cacheSecurityContext(userId, newContext);
+        this.logger.debug(`New security context compiled and cached for user ${userId}`);
       }
 
       return newContext;
@@ -416,8 +419,9 @@ export class SecurityContextService {
       const cacheKey = `${this.CACHE_PREFIX}${userId}`;
       const cachedData = await this.redisService.get(cacheKey);
       
-      if (cachedData) {
-        return JSON.parse(cachedData);
+      if (cachedData && typeof cachedData === 'string') {
+        const parsed = JSON.parse(cachedData);
+        return parsed;
       }
     } catch (error) {
       this.logger.error(`Error getting cached context for user ${userId}:`, error);
@@ -444,6 +448,7 @@ export class SecurityContextService {
    */
   private isContextValid(context: SecurityContextCache): boolean {
     const maxAge = this.configService.get<number>('SECURITY_CONTEXT_MAX_AGE', 3600 * 1000); // 1 hour in ms
-    return (Date.now() - context.lastUpdated) < maxAge;
+    const age = Date.now() - context.lastUpdated;
+    return age < maxAge;
   }
 }

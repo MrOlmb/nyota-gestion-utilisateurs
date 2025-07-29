@@ -38,13 +38,29 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
    */
   async set(key: string, value: string, ttlSeconds?: number): Promise<void> {
     if (!this.redisClient) {
-      console.warn('Redis client not initialized, ignoring set operation');
+      console.error('RedisService: Client not initialized');
       return;
     }
-    if (ttlSeconds) {
-      await this.redisClient.setex(key, ttlSeconds, value);
-    } else {
-      await this.redisClient.set(key, value);
+    
+    // Ensure client is ready before operation
+    if (this.redisClient.status !== 'ready') {
+      console.warn(`RedisService: Client not ready (status: ${this.redisClient.status}), attempting reconnection`);
+      try {
+        await this.redisClient.connect();
+      } catch (error) {
+        console.error('RedisService: Failed to reconnect:', error);
+        return;
+      }
+    }
+    
+    try {
+      if (ttlSeconds) {
+        await this.redisClient.setex(key, ttlSeconds, value);
+      } else {
+        await this.redisClient.set(key, value);
+      }
+    } catch (error) {
+      console.error(`RedisService: Error setting key ${key}:`, error);
     }
   }
 
@@ -53,10 +69,28 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
    */
   async get(key: string): Promise<string | null> {
     if (!this.redisClient) {
-      console.warn('Redis client not initialized, returning null');
+      console.error('RedisService: Client not initialized');
       return null;
     }
-    return await this.redisClient.get(key);
+    
+    // Ensure client is ready before operation
+    if (this.redisClient.status !== 'ready') {
+      console.warn(`RedisService: Client not ready (status: ${this.redisClient.status}), attempting reconnection`);
+      try {
+        await this.redisClient.connect();
+      } catch (error) {
+        console.error('RedisService: Failed to reconnect:', error);
+        return null;
+      }
+    }
+    
+    try {
+      const result = await this.redisClient.get(key);
+      return result;
+    } catch (error) {
+      console.error(`RedisService: Error getting key ${key}:`, error);
+      return null;
+    }
   }
 
   /**

@@ -38,9 +38,12 @@ export class PermissionCheckerService {
     action: PermissionAction,
     context?: any
   ): Promise<PermissionResult> {
+    this.logger.log(`checkPermission called: userId=${userId}, businessObject=${businessObject}, action=${action}`);
     try {
       // 1. Récupérer le contexte de sécurité de l'utilisateur
+      this.logger.log(`Calling getSecurityContext for user ${userId}`);
       const securityContext = await this.securityContextService.getSecurityContext(userId);
+      this.logger.log(`SecurityContext result: ${securityContext ? 'FOUND' : 'NULL'}`);
       
       if (!securityContext) {
         this.logger.warn(`Security context not found for user ${userId}`);
@@ -49,6 +52,8 @@ export class PermissionCheckerService {
           reason: 'Contexte de sécurité introuvable' 
         };
       }
+
+      this.logger.log(`Security context permissions: ${JSON.stringify(securityContext.permissions)}`);
 
       // 2. Vérifier les permissions de base (Layer 2 - ACL)
       const basePermissionResult = this.checkBasePermissions(

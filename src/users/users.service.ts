@@ -200,9 +200,14 @@ export class UsersService {
       { where }
     );
 
-    // Calculate pagination
-    const skip = (query.page! - 1) * query.limit!;
-    const take = query.limit!;
+    // Calculate pagination - ensure values are properly set
+    const page = query.page || 1;
+    const limit = query.limit || 20;
+    const sortBy = query.sortBy || 'creeLe';
+    const sortOrder = query.sortOrder || 'desc';
+    
+    const skip = (page - 1) * limit;
+    const take = limit;
 
     // Get total count
     const total = await this.prisma.userMinistry.count(filteredQuery);
@@ -232,18 +237,18 @@ export class UsersService {
       },
       skip,
       take,
-      orderBy: { [query.sortBy!]: query.sortOrder }
+      orderBy: { [sortBy]: sortOrder }
     });
 
     return {
       data: users.map(user => this.mapMinistryUserToResponse(user)),
       pagination: {
-        page: query.page!,
-        limit: query.limit!,
+        page,
+        limit,
         total,
-        totalPages: Math.ceil(total / query.limit!),
+        totalPages: Math.ceil(total / limit),
         hasNext: skip + take < total,
-        hasPrev: query.page! > 1
+        hasPrev: page > 1
       }
     };
   }
