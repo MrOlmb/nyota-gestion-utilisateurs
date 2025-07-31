@@ -14,6 +14,14 @@ import {
   ValidationPipe
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import { 
+  ValidationErrorResponseDto, 
+  UnauthorizedErrorResponseDto, 
+  ForbiddenErrorResponseDto, 
+  NotFoundErrorResponseDto,
+  ConflictErrorResponseDto,
+  InternalServerErrorResponseDto 
+} from '../common/dto';
 import { UsersService } from './users.service';
 import { SecurityGuard } from '../common/guards/security.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -55,8 +63,31 @@ export class UsersController {
     description: 'Utilisateur créé avec succès',
     type: MinistryUserResponseDto 
   })
-  @ApiResponse({ status: 400, description: 'Données invalides' })
-  @ApiResponse({ status: 409, description: 'Email déjà utilisé' })
+  @ApiResponse({ 
+    status: 400, 
+    description: 'Données invalides',
+    type: ValidationErrorResponseDto
+  })
+  @ApiResponse({ 
+    status: 401, 
+    description: 'Non authentifié',
+    type: UnauthorizedErrorResponseDto
+  })
+  @ApiResponse({ 
+    status: 403, 
+    description: 'Permission insuffisante',
+    type: ForbiddenErrorResponseDto
+  })
+  @ApiResponse({ 
+    status: 409, 
+    description: 'Email déjà utilisé',
+    type: ConflictErrorResponseDto
+  })
+  @ApiResponse({ 
+    status: 500, 
+    description: 'Erreur interne du serveur',
+    type: InternalServerErrorResponseDto
+  })
   async createMinistryUser(
     @CurrentUser() user: UserProfile,
     @Body(ValidationPipe) createUserDto: CreateMinistryUserDto
@@ -97,7 +128,21 @@ export class UsersController {
     description: 'Utilisateur récupéré avec succès',
     type: MinistryUserResponseDto 
   })
-  @ApiResponse({ status: 404, description: 'Utilisateur introuvable' })
+  @ApiResponse({ 
+    status: 401, 
+    description: 'Non authentifié',
+    type: UnauthorizedErrorResponseDto
+  })
+  @ApiResponse({ 
+    status: 403, 
+    description: 'Permission insuffisante',
+    type: ForbiddenErrorResponseDto
+  })
+  @ApiResponse({ 
+    status: 404, 
+    description: 'Utilisateur introuvable',
+    type: NotFoundErrorResponseDto
+  })
   async findMinistryUserById(
     @CurrentUser() user: UserProfile,
     @Param('id', ParseUUIDPipe) userId: string
